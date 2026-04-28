@@ -510,10 +510,9 @@ class MolibraryBrowserDialog(QDialog):
                 f"{count} compound(s) found.  "
                 "Double-click or press Enter to open in browser."
             )
-            # If exactly one hit, auto-select and open immediately
+            # If exactly one hit, auto-select for convenience
             if count == 1:
                 self._table.selectRow(0)
-                QTimer.singleShot(150, self._open_in_browser)
         else:
             self._lbl_status.setText("No results found.")
 
