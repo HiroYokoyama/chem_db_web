@@ -220,4 +220,6 @@ __marimo__/
 # Added data
 pdfs/
 venv/
+static/jsme/
+compounds.db
 
