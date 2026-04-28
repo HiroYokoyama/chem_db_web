@@ -61,8 +61,8 @@ chmod +x setup.sh start.sh
 | **Substructure** | Find all compounds containing the drawn query fragment |
 | **Similarity** | Tanimoto (Morgan fingerprint) search with adjustable threshold |
 
-### Text Search (API)
-Search across name, SMILES, InChI Key, and notes via `GET /api/compounds?q=`.
+### Text / Name Search
+Live search bar on the main library page — searches name, SMILES, InChI Key, and notes via `GET /api/compounds?q=`. Results update as you type (280 ms debounce).
 
 ---
 
@@ -107,11 +107,11 @@ start.bat --port 8080
 | Feature | Description |
 |---|---|
 | Text search | Search by name, SMILES, InChI Key, or notes |
+| Exact match | InChI Key exact match — finds the same compound regardless of SMILES representation |
 | Substructure search | Find fragments of the current molecule |
 | Similarity search | Tanimoto search with adjustable threshold |
-| Current Molecule | One-click search using the molecule open in MoleditPy |
+| Current Molecule | Strips explicit H, generates canonical SMILES, auto-runs exact match search |
 | Open in browser | Double-click any result → compound page opens in browser |
-| Auto-open | If exactly one result is found, the page opens automatically |
 | Load into editor | Import selected compound's structure into the MoleditPy 2D editor |
 | Intranet support | Configurable server URL (localhost, LAN IP, or hostname); saved in `molibrary_plugin.json` |
 
@@ -165,6 +165,81 @@ chem_db_web/
   "threshold": 0.5
 }
 ```
+`mode` values: `"exact"` (InChI Key match) | `"substructure"` | `"similarity"` (`threshold` used only for similarity).
+
+---
+
+## Production Deployment
+
+`start.bat` / `start.sh` use Flask's built-in development server — **not suitable for production**.
+For a stable, always-on deployment use a proper WSGI server.
+
+### Windows — Waitress
+
+```bat
+pip install waitress
+waitress-serve --host=0.0.0.0 --port=5000 app:app
+```
+
+To run as a background service, wrap with [NSSM](https://nssm.cc):
+
+```bat
+nssm install Molibrary "C:\path\to\venv\Scripts\waitress-serve.exe" --host=0.0.0.0 --port=5000 app:app
+nssm set Molibrary AppDirectory C:\path\to\chem_db_web
+nssm start Molibrary
+```
+
+### Linux — Gunicorn + systemd
+
+```bash
+pip install gunicorn
+
+# /etc/systemd/system/molibrary.service
+[Unit]
+Description=Molibrary
+After=network.target
+
+[Service]
+User=youruser
+WorkingDirectory=/opt/molibrary/chem_db_web
+ExecStart=/opt/molibrary/venv/bin/gunicorn -w 2 -b 0.0.0.0:5000 app:app
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload
+systemctl enable --now molibrary
+```
+
+### Nginx reverse proxy (recommended for LAN/intranet)
+
+```nginx
+server {
+    listen 80;
+    server_name labserver;          # or IP address
+
+    client_max_body_size 60M;       # must be >= app MAX_CONTENT_LENGTH (50 MB)
+
+    location / {
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+    }
+
+    location /pdfs/ {
+        alias /opt/molibrary/chem_db_web/pdfs/;
+    }
+}
+```
+
+### Notes
+- `compounds.db` and `pdfs/` must be **writable** by the server process user.
+- The app already runs with `debug=False` — do not change this in production.
+- SQLite is suitable for a single-lab workgroup (concurrent reads fine; writes serialised). For high write concurrency migrate to PostgreSQL.
+- Back up `compounds.db` + `pdfs/` regularly — that is the entire state of the app.
 
 ---
 

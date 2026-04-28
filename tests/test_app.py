@@ -393,6 +393,149 @@ class TestStructureSearchApi:
         assert data["results"] == []
 
 
+class TestExactSearchApi:
+    def test_exact_match_found(self, client):
+        _add_compound(client, name="Ethanol", smiles="CCO")
+        resp = client.post("/api/search", json={"smiles": "CCO", "mode": "exact"})
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "Ethanol"
+
+    def test_exact_match_not_found(self, client):
+        """A different molecule must not appear as an exact match."""
+        _add_compound(client, name="Ethanol", smiles="CCO")
+        resp = client.post("/api/search", json={"smiles": "CCCO", "mode": "exact"})
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert data["results"] == []
+
+    def test_exact_match_excludes_superstructure(self, client):
+        """Substructure of query must not appear in exact results."""
+        _add_compound(client, name="Aspirin", smiles="CC(=O)Oc1ccccc1C(=O)O")
+        _add_compound(client, name="Benzene", smiles="c1ccccc1")
+        resp = client.post("/api/search", json={
+            "smiles": "CC(=O)Oc1ccccc1C(=O)O", "mode": "exact"
+        })
+        data = json.loads(resp.data)
+        names = [r["name"] for r in data["results"]]
+        assert "Aspirin" in names
+        assert "Benzene" not in names
+
+    def test_exact_match_canonical_smiles_variant(self, client):
+        """Different but equivalent SMILES must resolve to the same InChI Key."""
+        _add_compound(client, name="Ethanol", smiles="CCO")
+        # OCC is the same molecule written differently
+        resp = client.post("/api/search", json={"smiles": "OCC", "mode": "exact"})
+        data = json.loads(resp.data)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "Ethanol"
+
+    def test_exact_match_multiple_compounds(self, client):
+        """Two distinct compounds stored; exact query returns only the matching one."""
+        _add_compound(client, name="Ethanol", smiles="CCO")
+        _add_compound(client, name="Methanol", smiles="CO")
+        resp = client.post("/api/search", json={"smiles": "CO", "mode": "exact"})
+        data = json.loads(resp.data)
+        names = [r["name"] for r in data["results"]]
+        assert "Methanol" in names
+        assert "Ethanol" not in names
+
+    def test_exact_match_invalid_smiles(self, client):
+        resp = client.post("/api/search", json={"smiles": "NOTSMILES", "mode": "exact"})
+        assert resp.status_code == 400
+
+    def test_exact_match_empty_smiles(self, client):
+        resp = client.post("/api/search", json={"smiles": "", "mode": "exact"})
+        data = json.loads(resp.data)
+        assert data["results"] == []
+
+    def test_exact_match_compound_without_inchi_key_not_returned(self, client, tmp_db):
+        """A compound whose inchi_key is NULL must not appear in exact results."""
+        import sqlite3
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO compounds (name, smiles, inchi_key) VALUES (?,?,?)",
+                ("NullKey", "CCO", None)
+            )
+            conn.commit()
+        resp = client.post("/api/search", json={"smiles": "CCO", "mode": "exact"})
+        data = json.loads(resp.data)
+        # NULL inchi_key must not match
+        names = [r["name"] for r in data["results"]]
+        assert "NullKey" not in names
+
+
+class TestSvgCache:
+    def test_same_smiles_returns_cached_result(self, client):
+        """Two calls to mol_to_svg with the same args must return the same object."""
+        from app import mol_to_svg
+        mol_to_svg.cache_clear()
+        r1 = mol_to_svg("CCO", 300, 200)
+        r2 = mol_to_svg("CCO", 300, 200)
+        assert r1 is r2
+        assert mol_to_svg.cache_info().hits >= 1
+
+    def test_different_smiles_are_cached_separately(self, client):
+        from app import mol_to_svg
+        mol_to_svg.cache_clear()
+        svg1 = mol_to_svg("CCO", 300, 200)
+        svg2 = mol_to_svg("c1ccccc1", 300, 200)
+        assert svg1 != svg2
+        assert mol_to_svg.cache_info().currsize == 2
+
+    def test_different_dimensions_cached_separately(self, client):
+        from app import mol_to_svg
+        mol_to_svg.cache_clear()
+        mol_to_svg("CCO", 100, 80)
+        mol_to_svg("CCO", 400, 300)
+        assert mol_to_svg.cache_info().currsize == 2
+
+    def test_svg_endpoint_returns_etag(self, client):
+        resp = client.get("/api/structure.svg?smiles=CCO&w=300&h=200")
+        assert resp.status_code == 200
+        assert 'ETag' in resp.headers
+        assert resp.headers['ETag'].startswith('"')
+
+    def test_svg_endpoint_304_on_matching_etag(self, client):
+        """If-None-Match with a matching ETag must return 304."""
+        r1 = client.get("/api/structure.svg?smiles=CCO&w=300&h=200")
+        etag = r1.headers['ETag']
+        r2 = client.get("/api/structure.svg?smiles=CCO&w=300&h=200",
+                        headers={'If-None-Match': etag})
+        assert r2.status_code == 304
+
+    def test_svg_endpoint_200_after_smiles_change(self, client):
+        """After a compound's SMILES changes the new URL has a different ETag."""
+        r1 = client.get("/api/structure.svg?smiles=CCO&w=300&h=200")
+        r2 = client.get("/api/structure.svg?smiles=CCCO&w=300&h=200")
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        assert r1.headers['ETag'] != r2.headers['ETag']
+
+    def test_svg_cache_control_header(self, client):
+        resp = client.get("/api/structure.svg?smiles=CCO&w=300&h=200")
+        assert 'Cache-Control' in resp.headers
+        assert 'max-age' in resp.headers['Cache-Control']
+
+    def test_edited_compound_serves_fresh_svg(self, client):
+        """Editing a compound SMILES must produce a different ETag on next request."""
+        _add_compound(client, name="Ethanol", smiles="CCO")
+        r_before = client.get("/api/structure.svg?smiles=CCO&w=240&h=160")
+
+        # Edit the compound to propanol
+        client.post("/compound/1/edit", data={
+            "name": "Propanol", "smiles": "CCCO", "molblock": "", "notes": ""
+        }, follow_redirects=True)
+
+        r_after = client.get("/api/structure.svg?smiles=CCCO&w=240&h=160")
+        assert r_before.status_code == 200
+        assert r_after.status_code == 200
+        # Different SMILES → different content → different ETag
+        assert r_before.headers['ETag'] != r_after.headers['ETag']
+
+
 class TestServePdf:
     def test_serve_existing_pdf(self, client, tmp_db):
         _, pdf_dir = tmp_db

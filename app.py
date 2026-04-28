@@ -1,7 +1,9 @@
+import hashlib
 import os
 import sqlite3
 import uuid
 import urllib.parse
+from functools import lru_cache
 from io import BytesIO
 
 from flask import (Flask, abort, jsonify, redirect, render_template,
@@ -67,6 +69,7 @@ def init_db():
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+@lru_cache(maxsize=512)
 def mol_to_svg(smiles: str, width=300, height=200) -> str | None:
     if not RDKIT or not smiles:
         return None
@@ -219,7 +222,14 @@ def structure_svg():
     svg = mol_to_svg(smiles, w, h)
     if svg is None:
         abort(400)
-    return svg, 200, {'Content-Type': 'image/svg+xml'}
+    etag = f'"{hashlib.md5(svg.encode()).hexdigest()}"'
+    if request.headers.get('If-None-Match') == etag:
+        return '', 304
+    return svg, 200, {
+        'Content-Type': 'image/svg+xml',
+        'ETag': etag,
+        'Cache-Control': 'private, max-age=86400',
+    }
 
 
 @app.route('/api/compounds')
@@ -256,6 +266,17 @@ def api_search():
     query_mol = Chem.MolFromSmiles(query_smi)
     if query_mol is None:
         return jsonify({'error': 'Invalid query SMILES'}), 400
+
+    # Exact match via InChI Key — no need to iterate all rows
+    if mode == 'exact':
+        query_inchi_key = mol_to_inchi_key(query_smi)
+        if not query_inchi_key:
+            return jsonify({'error': 'Could not generate InChI Key from query SMILES'}), 400
+        with get_db() as conn:
+            rows = conn.execute(
+                'SELECT * FROM compounds WHERE inchi_key = ?', (query_inchi_key,)
+            ).fetchall()
+        return jsonify({'results': [dict(r) for r in rows]})
 
     with get_db() as conn:
         rows = conn.execute(

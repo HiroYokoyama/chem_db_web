@@ -60,7 +60,11 @@ body {
   line-height: 1.65;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
 }
+
+main.container { flex: 1; }
 
 a { color: var(--accent); text-decoration: none; transition: color .12s; }
 a:hover { color: var(--accent-hi); text-decoration: underline; }
@@ -744,6 +748,8 @@ textarea.form-control { resize: vertical; min-height: 120px; }
 
 /* Ensure buttons in result card stay on top of the link */
 .result-actions { display: flex; gap: 8px; flex-wrap: wrap; position: relative; z-index: 10; }
+
+.similarity {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -764,8 +770,6 @@ textarea.form-control { resize: vertical; min-height: 120px; }
   margin-bottom: 10px;
   line-height: 1.5;
 }
-
-.result-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* ── Results header ──────────────────────────────────────────────────────────── */
 .results-header {

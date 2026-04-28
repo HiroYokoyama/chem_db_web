@@ -126,6 +126,12 @@ class _StructureSearchWorker(QThread):
                 self.error_occurred.emit(data['error'])
             else:
                 self.results_ready.emit(data.get('results', []))
+        except urllib.error.HTTPError as exc:
+            try:
+                body = json.loads(exc.read().decode())
+                self.error_occurred.emit(body.get('error', str(exc)))
+            except Exception:
+                self.error_occurred.emit(str(exc))
         except urllib.error.URLError:
             self.error_occurred.emit(
                 f"Cannot connect to Molibrary at {self._base_url}.\n"
@@ -153,6 +159,27 @@ class _SvgFetcher(QThread):
             self.svg_ready.emit(self._smiles, '')
 
 
+def _try_local_svg(smiles: str, width: int = 300, height: int = 210) -> str:
+    """Generate an SVG string using a local RDKit installation.
+
+    Returns the SVG text on success, or an empty string if RDKit is not
+    available or the SMILES cannot be parsed.
+    """
+    try:
+        from rdkit import Chem
+        from rdkit.Chem.Draw import rdMolDraw2D
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return ''
+        drawer = rdMolDraw2D.MolDraw2DSVG(width, height)
+        drawer.drawOptions().addStereoAnnotation = True
+        drawer.DrawMolecule(mol)
+        drawer.FinishDrawing()
+        return drawer.GetDrawingText()
+    except Exception:
+        return ''
+
+
 # ── Main dialog ───────────────────────────────────────────────────────────────
 
 class MolibraryBrowserDialog(QDialog):
@@ -160,9 +187,10 @@ class MolibraryBrowserDialog(QDialog):
         super().__init__(context.get_main_window())
         self.context     = context
         self.context.register_window("molibrary_main", self)
-        self._results    = []
-        self._worker     = None
-        self._svg_worker = None
+        self._results      = []
+        self._worker       = None
+        self._svg_worker   = None
+        self._auto_loading = False
 
         # Restore last-used server URL from companion JSON
         saved_url = _load_settings().get("server_url", _DEFAULT_BASE_URL)
@@ -174,6 +202,9 @@ class MolibraryBrowserDialog(QDialog):
         self._le_url.setText(saved_url)
         # Save URL whenever it changes so it survives app restarts
         self._le_url.editingFinished.connect(self._save_url)
+
+        # Silently populate the table on first open if the server is reachable
+        QTimer.singleShot(250, self._auto_load)
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -237,6 +268,7 @@ class MolibraryBrowserDialog(QDialog):
 
         self._mode_group = QButtonGroup(self)
         for label, value in [("Text", "text"),
+                              ("Exact (InChI Key)", "exact"),
                               ("Substructure / Fragment", "substructure"),
                               ("Similarity", "similarity")]:
             rb = QRadioButton(label)
@@ -254,7 +286,7 @@ class MolibraryBrowserDialog(QDialog):
         self._spin_thr.setSingleStep(0.05)
         self._spin_thr.setValue(0.5)
         self._spin_thr.setDecimals(2)
-        self._spin_thr.setFixedWidth(68)
+        self._spin_thr.setFixedWidth(90)
         self._spin_thr.setEnabled(False)
         self._spin_thr.setToolTip("Tanimoto similarity threshold (0.05 – 1.00)")
         mode_layout.addWidget(self._spin_thr)
@@ -418,6 +450,14 @@ class MolibraryBrowserDialog(QDialog):
                 return
             self._run_structure_search(query, mode)
 
+    def _auto_load(self):
+        """Silently fetch all compounds on first open; swallow connection errors.
+        Skipped if a search was already run before the timer fired."""
+        if self._results or (self._worker and self._worker.isRunning()):
+            return
+        self._auto_loading = True
+        self._run_text_search('')
+
     def _show_all(self):
         self._le_query.clear()
         self._run_text_search('')
@@ -434,6 +474,7 @@ class MolibraryBrowserDialog(QDialog):
                     "No molecule is currently open in MoleditPy."
                 )
                 return
+            mol = Chem.RemoveHs(mol)
             smiles = Chem.MolToSmiles(mol)
         except Exception as exc:
             QMessageBox.warning(self, PLUGIN_NAME,
@@ -444,12 +485,12 @@ class MolibraryBrowserDialog(QDialog):
 
         mode = self._current_mode()
         if mode == "text":
-            # Auto-switch to substructure for a SMILES query from the editor
+            # Auto-switch to exact match (InChI Key) when coming from the editor
             for btn in self._mode_group.buttons():
-                if btn.property("mode_value") == "substructure":
+                if btn.property("mode_value") == "exact":
                     btn.setChecked(True)
                     break
-            mode = "substructure"
+            mode = "exact"
 
         self._run_structure_search(smiles, mode)
 
@@ -490,6 +531,7 @@ class MolibraryBrowserDialog(QDialog):
     # ── Results ───────────────────────────────────────────────────────────────
 
     def _on_results(self, results: list):
+        self._auto_loading = False
         self._results = results
         self._table.setRowCount(0)
 
@@ -517,6 +559,12 @@ class MolibraryBrowserDialog(QDialog):
             self._lbl_status.setText("No results found.")
 
     def _on_error(self, msg: str):
+        if self._auto_loading:
+            self._auto_loading = False
+            self._lbl_status.setText(
+                "Molibrary server not reachable — enter a query or click 'All' to retry."
+            )
+            return
         QMessageBox.critical(self, PLUGIN_NAME, msg)
         self._lbl_status.setText("Error — see dialog.")
 
@@ -548,11 +596,17 @@ class MolibraryBrowserDialog(QDialog):
         smiles = r.get('smiles', '')
         if smiles:
             self._lbl_struct.setText("Loading…")
-            if self._svg_worker and self._svg_worker.isRunning():
-                self._svg_worker.terminate()
-            self._svg_worker = _SvgFetcher(self._current_url(), smiles, self)
-            self._svg_worker.svg_ready.connect(self._on_svg_ready)
-            self._svg_worker.start()
+            local_svg = _try_local_svg(smiles)
+            if local_svg:
+                # Instant local render — no network round-trip needed
+                self._on_svg_ready(smiles, local_svg)
+            else:
+                # RDKit not available locally: fall back to server
+                if self._svg_worker and self._svg_worker.isRunning():
+                    self._svg_worker.terminate()
+                self._svg_worker = _SvgFetcher(self._current_url(), smiles, self)
+                self._svg_worker.svg_ready.connect(self._on_svg_ready)
+                self._svg_worker.start()
         else:
             self._lbl_struct.setText("No structure")
 

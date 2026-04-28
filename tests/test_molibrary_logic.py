@@ -64,3 +64,92 @@ def test_structure_search_worker_init():
     assert worker._smiles == "CCO"
     assert worker._mode == "substructure"
     assert worker._threshold == 0.7
+
+
+def test_try_local_svg_valid_smiles():
+    """_try_local_svg returns an SVG string for a valid SMILES."""
+    from molibrary_plugin import _try_local_svg
+    svg = _try_local_svg("CCO")
+    assert svg != ''
+    assert "<svg" in svg
+
+
+def test_try_local_svg_invalid_smiles():
+    """_try_local_svg returns empty string for invalid SMILES."""
+    from molibrary_plugin import _try_local_svg
+    assert _try_local_svg("NOT_A_SMILES!!!") == ''
+
+
+def test_try_local_svg_no_rdkit():
+    """_try_local_svg returns empty string when RDKit import fails."""
+    import sys
+    from unittest.mock import patch
+    from molibrary_plugin import _try_local_svg
+    with patch.dict(sys.modules, {'rdkit': None, 'rdkit.Chem': None,
+                                   'rdkit.Chem.Draw': None,
+                                   'rdkit.Chem.Draw.rdMolDraw2D': None}):
+        result = _try_local_svg("CCO")
+    assert result == ''
+
+
+def test_try_local_svg_custom_dimensions():
+    """Width/height are forwarded to the drawer."""
+    from molibrary_plugin import _try_local_svg
+    svg = _try_local_svg("c1ccccc1", width=400, height=300)
+    assert "<svg" in svg
+
+
+def test_structure_search_worker_exact_mode():
+    """Exact mode is stored correctly in the worker."""
+    from molibrary_plugin import _StructureSearchWorker
+    worker = _StructureSearchWorker("http://localhost:5000", "CCO", "exact", 0.5)
+    assert worker._mode == "exact"
+
+
+def test_structure_search_worker_http_error_emits_server_message():
+    """A 400 HTTP error from the server must emit the server's error text, not 'Cannot connect'."""
+    import urllib.error
+    from unittest.mock import patch, MagicMock
+    from molibrary_plugin import _StructureSearchWorker
+
+    worker = _StructureSearchWorker("http://localhost:5000", "INVALID", "exact", 0.5)
+
+    errors = []
+    worker.error_occurred.connect(errors.append)
+
+    # Simulate an HTTPError whose body contains a JSON error message
+    http_err = urllib.error.HTTPError(
+        url="http://localhost:5000/api/search",
+        code=400,
+        msg="BAD REQUEST",
+        hdrs={},
+        fp=None,
+    )
+    http_err.read = lambda: b'{"error": "Invalid query SMILES"}'
+
+    with patch("urllib.request.urlopen", side_effect=http_err):
+        worker.run()
+
+    assert len(errors) == 1
+    assert "Invalid query SMILES" in errors[0]
+    # Must NOT produce the generic "Cannot connect" message
+    assert "Cannot connect" not in errors[0]
+
+
+def test_structure_search_worker_url_error_emits_connect_message():
+    """A URLError (server down) must emit the 'Cannot connect' message."""
+    import urllib.error
+    from unittest.mock import patch
+    from molibrary_plugin import _StructureSearchWorker
+
+    worker = _StructureSearchWorker("http://localhost:9999", "CCO", "substructure", 0.5)
+
+    errors = []
+    worker.error_occurred.connect(errors.append)
+
+    url_err = urllib.error.URLError(reason="Connection refused")
+    with patch("urllib.request.urlopen", side_effect=url_err):
+        worker.run()
+
+    assert len(errors) == 1
+    assert "Cannot connect" in errors[0]

@@ -10,6 +10,17 @@
   </div>
 </div>
 
+<div class="search-bar-row" style="margin-bottom:18px;display:flex;gap:8px;">
+  <input id="lib_search" type="search" class="form-control"
+         placeholder="Search by name, SMILES, InChI Key, notes…"
+         style="flex:1;max-width:480px;"
+         autocomplete="off">
+  <button class="btn btn-secondary" onclick="libSearch()">Search</button>
+  <button class="btn btn-ghost" onclick="libClear()">Clear</button>
+</div>
+
+<div id="lib_stat" style="display:none;margin-bottom:8px;font-size:13px;color:var(--muted)"></div>
+
 {% if compounds %}
 
 <div class="stat-strip">
@@ -68,4 +79,76 @@
 </div>
 
 {% endif %}
+
+<script>
+const grid   = document.querySelector('.grid');
+const empty  = document.querySelector('.empty-state');
+const stat   = document.getElementById('lib_stat');
+const input  = document.getElementById('lib_search');
+
+function cardHtml(c) {
+  const smiles = c.smiles || '';
+  const img = smiles
+    ? `<img src="/api/structure.svg?smiles=${encodeURIComponent(smiles)}&w=240&h=160" alt="${c.name}" loading="lazy">`
+    : `<div class="no-structure"><span>⬡</span>No structure</div>`;
+  const smilesRow = smiles
+    ? `<p class="smiles-text" title="${smiles}">${smiles.length > 52 ? smiles.substring(0,52) + '…' : smiles}</p>`
+    : '';
+  const pdfBadge = c.pdf_filename ? `<span class="badge badge-pdf">PDF</span>` : '';
+  const date = c.created_at ? c.created_at.substring(0,10) : '';
+  return `<div class="card">
+    <div class="card-img">${img}</div>
+    <div class="card-body">
+      <h3 class="card-title"><a href="/compound/${c.id}">${c.name}</a></h3>
+      ${smilesRow}
+      <div class="card-meta"><span class="date">${date}</span>${pdfBadge}</div>
+    </div>
+  </div>`;
+}
+
+async function libSearch() {
+  const q = input.value.trim();
+  try {
+    const resp = await fetch(`/api/compounds?q=${encodeURIComponent(q)}`);
+    const data = await resp.json();
+    const results = data.results || [];
+    if (grid) {
+      grid.innerHTML = results.map(cardHtml).join('');
+    } else if (results.length) {
+      // empty-state page: inject a grid
+      const g = document.createElement('div');
+      g.className = 'grid';
+      g.id = '_dyn_grid';
+      g.innerHTML = results.map(cardHtml).join('');
+      if (empty) empty.style.display = 'none';
+      document.querySelector('.container').appendChild(g);
+    }
+    stat.style.display = '';
+    if (q) {
+      stat.textContent = results.length
+        ? `${results.length} result(s) for "${q}"`
+        : `No results for "${q}"`;
+    } else {
+      stat.textContent = `${results.length} compound(s)`;
+    }
+  } catch(e) {
+    stat.style.display = '';
+    stat.textContent = 'Search failed: ' + e;
+  }
+}
+
+function libClear() {
+  input.value = '';
+  stat.style.display = 'none';
+  location.reload();
+}
+
+input.addEventListener('keydown', e => { if (e.key === 'Enter') libSearch(); });
+// Live search with debounce
+let _t;
+input.addEventListener('input', () => {
+  clearTimeout(_t);
+  _t = setTimeout(libSearch, 280);
+});
+</script>
 {% endblock %}
