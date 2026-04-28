@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QLabel, QHeaderView,
     QAbstractItemView, QApplication, QMessageBox, QSplitter,
     QWidget, QFrame, QButtonGroup, QRadioButton, QDoubleSpinBox,
-    QGroupBox,
+    QGroupBox, QFormLayout, QTextEdit,
 )
 
 PLUGIN_NAME        = "Molibrary Browser"
@@ -312,6 +312,93 @@ def _try_local_svg(smiles: str, width: int = 300, height: int = 210) -> str:
         return ''
 
 
+# ── Add entry dialog ─────────────────────────────────────────────────────────
+
+class _AddEntryDialog(QDialog):
+    """Minimal form to add a new compound to Molibrary from within the plugin."""
+
+    def __init__(self, base_url: str, smiles: str = '', parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add to Molibrary")
+        self.setMinimumWidth(420)
+        self._base_url = base_url.rstrip('/')
+        self._new_id   = None
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self._le_name   = QLineEdit()
+        self._le_author = QLineEdit()
+        self._le_smiles = QLineEdit(smiles)
+        self._te_notes  = QTextEdit()
+        self._te_notes.setFixedHeight(80)
+
+        form.addRow("Name *", self._le_name)
+        form.addRow("Author", self._le_author)
+        form.addRow("SMILES", self._le_smiles)
+        form.addRow("Notes", self._te_notes)
+
+        self._lbl_err = QLabel()
+        self._lbl_err.setStyleSheet("color: red;")
+        self._lbl_err.setWordWrap(True)
+        self._lbl_err.hide()
+
+        btn_ok  = QPushButton("Add")
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self._submit)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+
+        btns = QHBoxLayout()
+        btns.addStretch()
+        btns.addWidget(btn_ok)
+        btns.addWidget(btn_cancel)
+
+        root = QVBoxLayout(self)
+        root.addLayout(form)
+        root.addWidget(self._lbl_err)
+        root.addLayout(btns)
+
+    def _submit(self):
+        name = self._le_name.text().strip()
+        if not name:
+            self._lbl_err.setText("Name is required.")
+            self._lbl_err.show()
+            self._le_name.setFocus()
+            return
+        payload = json.dumps({
+            'name':   name,
+            'author': self._le_author.text().strip(),
+            'smiles': self._le_smiles.text().strip(),
+            'notes':  self._te_notes.toPlainText().strip(),
+        }).encode()
+        req = urllib.request.Request(
+            f"{self._base_url}/api/compounds",
+            data=payload,
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = json.loads(resp.read().decode())
+                self._new_id = body.get('id')
+            self.accept()
+        except urllib.error.HTTPError as exc:
+            try:
+                msg = json.loads(exc.read().decode()).get('error', str(exc))
+            except Exception:
+                msg = str(exc)
+            self._lbl_err.setText(f"Server error: {msg}")
+            self._lbl_err.show()
+        except urllib.error.URLError:
+            self._lbl_err.setText("Cannot connect to Molibrary server.")
+            self._lbl_err.show()
+
+    def new_id(self) -> int | None:
+        return self._new_id
+
+
 # ── Main dialog ───────────────────────────────────────────────────────────────
 
 class MolibraryBrowserDialog(QDialog):
@@ -527,6 +614,14 @@ class MolibraryBrowserDialog(QDialog):
         self._btn_load.clicked.connect(self._load_selected)
         actions.addWidget(self._btn_load)
 
+        self._btn_add = QPushButton("➕  Add New Entry")
+        self._btn_add.setToolTip(
+            "Add a new compound to Molibrary\n"
+            "(pre-filled with the current molecule if one is open)"
+        )
+        self._btn_add.clicked.connect(self._add_new_entry)
+        actions.addWidget(self._btn_add)
+
         actions.addStretch()
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.close)
@@ -735,7 +830,8 @@ class MolibraryBrowserDialog(QDialog):
             else:
                 # RDKit not available locally: fall back to server
                 if self._svg_worker and self._svg_worker.isRunning():
-                    self._svg_worker.terminate()
+                    self._svg_worker.quit()
+                    self._svg_worker.wait(2000)
                 self._svg_worker = _SvgFetcher(self._current_url(), smiles, self)
                 self._svg_worker.svg_ready.connect(self._on_svg_ready)
                 self._svg_worker.start()
@@ -804,6 +900,31 @@ class MolibraryBrowserDialog(QDialog):
                 )
         except Exception as exc:
             QMessageBox.critical(self, PLUGIN_NAME, f"Load failed: {exc}")
+
+    def _add_new_entry(self):
+        # Pre-fill SMILES from the current molecule if available
+        prefill_smiles = ''
+        try:
+            mol = self.context.current_molecule
+            if mol is not None:
+                try:
+                    from rdkit import Chem
+                    mol = Chem.RemoveHs(mol)
+                    prefill_smiles = Chem.MolToSmiles(mol)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        dlg = _AddEntryDialog(self._current_url(), smiles=prefill_smiles, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_id = dlg.new_id()
+            self.context.show_status_message("Molibrary: compound added.")
+            # Refresh the browser list so the new entry appears
+            self._show_all()
+            # Open the new compound page in the browser
+            if new_id is not None:
+                webbrowser.open(f"{self._current_url()}/compound/{new_id}")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

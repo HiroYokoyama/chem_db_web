@@ -402,14 +402,42 @@ def api_compounds():
     return jsonify({'results': [dict(r) for r in rows]})
 
 
+@app.route('/api/compounds', methods=['POST'])
+def api_add_compound():
+    """Create a new compound via JSON. PDF upload not supported through this endpoint."""
+    data  = request.get_json(force=True)
+    name  = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    smiles   = (data.get('smiles') or '').strip()
+    author   = (data.get('author') or '').strip()
+    notes    = (data.get('notes') or '').strip()
+    molblock = (data.get('molblock') or '').strip()
+    inchi_key = mol_to_inchi_key(smiles)
+    with get_db() as conn:
+        cur = conn.execute(
+            'INSERT INTO compounds (name, author, smiles, molblock, inchi_key, pdf_filename, notes)'
+            ' VALUES (?,?,?,?,?,?,?)',
+            (name, author, smiles, molblock, inchi_key, None, notes)
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+    return jsonify({'id': new_id}), 201
+
+
 @app.route('/api/search', methods=['POST'])
 def api_search():
     if not RDKIT:
         return jsonify({'error': 'RDKit not installed on this server.'}), 503
     data      = request.get_json(force=True)
     query_smi = (data.get('smiles') or '').strip()
-    mode      = data.get('mode', 'substructure')   # substructure | similarity
-    threshold = float(data.get('threshold', 0.5))
+    mode      = data.get('mode', 'substructure')
+    if mode not in ('exact', 'substructure', 'similarity'):
+        return jsonify({'error': 'Invalid search mode'}), 400
+    try:
+        threshold = float(data.get('threshold', 0.5))
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid threshold value'}), 400
 
     if not query_smi:
         return jsonify({'results': []})

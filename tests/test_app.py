@@ -636,3 +636,50 @@ class TestServePdf:
         resp = client.get(f"/pdf/{fname}/download")
         assert resp.status_code == 200
         assert "attachment" in resp.headers.get("Content-Disposition", "")
+
+
+class TestApiAddCompound:
+    def test_add_returns_201_with_id(self, client):
+        resp = client.post("/api/compounds", json={"name": "Aspirin", "smiles": "CC(=O)Oc1ccccc1C(=O)O"})
+        assert resp.status_code == 201
+        data = json.loads(resp.data)
+        assert "id" in data
+        assert isinstance(data["id"], int)
+
+    def test_add_persists_compound(self, client):
+        client.post("/api/compounds", json={"name": "Caffeine", "smiles": "Cn1cnc2c1c(=O)n(c(=O)n2C)C"})
+        resp = client.get("/api/compounds?q=Caffeine")
+        data = json.loads(resp.data)
+        assert any(r["name"] == "Caffeine" for r in data["results"])
+
+    def test_add_missing_name_returns_400(self, client):
+        resp = client.post("/api/compounds", json={"smiles": "CCO"})
+        assert resp.status_code == 400
+        assert "error" in json.loads(resp.data)
+
+    def test_add_no_smiles_is_allowed(self, client):
+        resp = client.post("/api/compounds", json={"name": "Unknown"})
+        assert resp.status_code == 201
+
+    def test_add_stores_inchi_key(self, client):
+        client.post("/api/compounds", json={"name": "Ethanol", "smiles": "CCO"})
+        resp = client.get("/api/compounds?q=Ethanol")
+        data = json.loads(resp.data)
+        assert data["results"][0]["inchi_key"] is not None
+
+    def test_add_stores_author_and_notes(self, client):
+        client.post("/api/compounds", json={
+            "name": "Test", "smiles": "C", "author": "Alice", "notes": "test notes"
+        })
+        resp = client.get("/api/compounds?q=Test")
+        r = json.loads(resp.data)["results"][0]
+        assert r["author"] == "Alice"
+        assert r["notes"] == "test notes"
+
+    def test_search_mode_validation(self, client):
+        resp = client.post("/api/search", json={"smiles": "CCO", "mode": "badmode"})
+        assert resp.status_code == 400
+
+    def test_threshold_validation(self, client):
+        resp = client.post("/api/search", json={"smiles": "CCO", "mode": "similarity", "threshold": "notanumber"})
+        assert resp.status_code == 400
