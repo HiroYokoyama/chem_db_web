@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import uuid
 import urllib.parse
 from io import BytesIO
 
@@ -18,10 +19,18 @@ except ImportError:
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max upload
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH  = os.path.join(BASE_DIR, 'compounds.db')
-PDF_DIR  = os.path.join(BASE_DIR, 'pdfs')
+BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+DB_PATH   = os.path.join(BASE_DIR, 'compounds.db')
+PDF_DIR   = os.path.join(BASE_DIR, 'pdfs')
+JSME_LOCAL = os.path.isfile(
+    os.path.join(BASE_DIR, 'static', 'jsme', 'jsme.nocache.js')
+)
 os.makedirs(PDF_DIR, exist_ok=True)
+
+# Inject jsme_local into every template automatically
+@app.context_processor
+def _inject_globals():
+    return {'jsme_local': JSME_LOCAL}
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -36,15 +45,22 @@ def init_db():
     with get_db() as conn:
         conn.execute('''
             CREATE TABLE IF NOT EXISTS compounds (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                name        TEXT NOT NULL,
-                smiles      TEXT,
-                molblock    TEXT,
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT NOT NULL,
+                author       TEXT,
+                smiles       TEXT,
+                molblock     TEXT,
+                inchi_key    TEXT,
                 pdf_filename TEXT,
-                notes       TEXT,
-                created_at  TEXT DEFAULT (datetime('now','localtime'))
+                notes        TEXT,
+                created_at   TEXT DEFAULT (datetime('now','localtime'))
             )
         ''')
+        # Migrations: add columns that may be absent in older databases
+        existing_cols = [row[1] for row in conn.execute("PRAGMA table_info(compounds)").fetchall()]
+        for col, defn in [('inchi_key', 'TEXT'), ('author', 'TEXT')]:
+            if col not in existing_cols:
+                conn.execute(f'ALTER TABLE compounds ADD COLUMN {col} {defn}')
         conn.commit()
 
 
@@ -63,12 +79,33 @@ def mol_to_svg(smiles: str, width=300, height=200) -> str | None:
     return drawer.GetDrawingText()
 
 
+def mol_to_inchi_key(smiles: str) -> str | None:
+    if not RDKIT or not smiles:
+        return None
+    try:
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
+        from rdkit.Chem.inchi import MolToInchi, InchiToInchiKey
+        inchi = MolToInchi(mol)
+        return InchiToInchiKey(inchi) if inchi else None
+    except Exception:
+        return None
+
+
 def save_pdf(file_obj) -> str | None:
+    """Save an uploaded PDF file; returns the stored filename or None."""
     if not file_obj or not file_obj.filename:
         return None
-    filename = secure_filename(file_obj.filename)
-    if not filename.lower().endswith('.pdf'):
+    orig = file_obj.filename
+    if not orig.lower().endswith('.pdf'):
         return None
+    filename = secure_filename(orig)
+    # secure_filename strips non-ASCII and leading dots:
+    #   "レポート.pdf" → "pdf" (no dot, wrong extension)
+    #   ".pdf"        → "" on some platforms
+    if not filename or not filename.lower().endswith('.pdf'):
+        filename = f"{uuid.uuid4().hex}.pdf"
     file_obj.save(os.path.join(PDF_DIR, filename))
     return filename
 
@@ -88,16 +125,19 @@ def index():
 def add():
     if request.method == 'POST':
         name     = request.form.get('name', '').strip()
+        author   = request.form.get('author', '').strip()
         smiles   = request.form.get('smiles', '').strip()
         molblock = request.form.get('molblock', '').strip()
         notes    = request.form.get('notes', '').strip()
         if not name:
             return render_template('add.html', error='Name is required.')
+        inchi_key    = mol_to_inchi_key(smiles)
         pdf_filename = save_pdf(request.files.get('pdf'))
         with get_db() as conn:
             conn.execute(
-                'INSERT INTO compounds (name, smiles, molblock, pdf_filename, notes) VALUES (?,?,?,?,?)',
-                (name, smiles, molblock, pdf_filename, notes)
+                'INSERT INTO compounds (name, author, smiles, molblock, inchi_key, pdf_filename, notes)'
+                ' VALUES (?,?,?,?,?,?,?)',
+                (name, author, smiles, molblock, inchi_key, pdf_filename, notes)
             )
             conn.commit()
         return redirect(url_for('index'))
@@ -122,19 +162,22 @@ def edit_compound(cid):
         abort(404)
     if request.method == 'POST':
         name     = request.form.get('name', '').strip()
+        author   = request.form.get('author', '').strip()
         smiles   = request.form.get('smiles', '').strip()
         molblock = request.form.get('molblock', '').strip()
         notes    = request.form.get('notes', '').strip()
         if not name:
             return render_template('edit.html', c=c, error='Name is required.')
+        inchi_key    = mol_to_inchi_key(smiles)
         pdf_filename = c['pdf_filename']
         new_pdf = save_pdf(request.files.get('pdf'))
         if new_pdf:
             pdf_filename = new_pdf
         with get_db() as conn:
             conn.execute(
-                'UPDATE compounds SET name=?,smiles=?,molblock=?,pdf_filename=?,notes=? WHERE id=?',
-                (name, smiles, molblock, pdf_filename, notes, cid)
+                'UPDATE compounds SET name=?,author=?,smiles=?,molblock=?,inchi_key=?,pdf_filename=?,notes=?'
+                ' WHERE id=?',
+                (name, author, smiles, molblock, inchi_key, pdf_filename, notes, cid)
             )
             conn.commit()
         return redirect(url_for('view_compound', cid=cid))
@@ -151,7 +194,13 @@ def delete_compound(cid):
 
 @app.route('/pdf/<path:filename>')
 def serve_pdf(filename):
-    return send_from_directory(PDF_DIR, filename)
+    return send_from_directory(PDF_DIR, filename, mimetype='application/pdf')
+
+
+@app.route('/pdf/<path:filename>/download')
+def download_pdf(filename):
+    return send_from_directory(PDF_DIR, filename, as_attachment=True,
+                               mimetype='application/pdf')
 
 
 @app.route('/search')
@@ -172,14 +221,33 @@ def structure_svg():
     return svg, 200, {'Content-Type': 'image/svg+xml'}
 
 
+@app.route('/api/compounds')
+def api_compounds():
+    """Text search across name, notes, InChI Key, and SMILES. No query → all compounds."""
+    q = request.args.get('q', '').strip()
+    with get_db() as conn:
+        if q:
+            rows = conn.execute(
+                '''SELECT * FROM compounds
+                   WHERE name LIKE ? OR notes LIKE ? OR inchi_key LIKE ? OR smiles LIKE ?
+                   ORDER BY created_at DESC''',
+                (f'%{q}%', f'%{q}%', f'%{q}%', f'%{q}%')
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                'SELECT * FROM compounds ORDER BY created_at DESC'
+            ).fetchall()
+    return jsonify({'results': [dict(r) for r in rows]})
+
+
 @app.route('/api/search', methods=['POST'])
 def api_search():
     if not RDKIT:
         return jsonify({'error': 'RDKit not installed on this server.'}), 503
-    data        = request.get_json(force=True)
-    query_smi   = (data.get('smiles') or '').strip()
-    mode        = data.get('mode', 'substructure')   # substructure | similarity
-    threshold   = float(data.get('threshold', 0.5))
+    data      = request.get_json(force=True)
+    query_smi = (data.get('smiles') or '').strip()
+    mode      = data.get('mode', 'substructure')   # substructure | similarity
+    threshold = float(data.get('threshold', 0.5))
 
     if not query_smi:
         return jsonify({'results': []})
@@ -189,7 +257,9 @@ def api_search():
         return jsonify({'error': 'Invalid query SMILES'}), 400
 
     with get_db() as conn:
-        rows = conn.execute('SELECT * FROM compounds WHERE smiles IS NOT NULL AND smiles != ""').fetchall()
+        rows = conn.execute(
+            'SELECT * FROM compounds WHERE smiles IS NOT NULL AND smiles != ""'
+        ).fetchall()
 
     results = []
     if mode == 'substructure':
@@ -215,6 +285,26 @@ def api_search():
 
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Molibrary server')
+    parser.add_argument('--host', default='0.0.0.0',
+                        help='Bind address (default: 0.0.0.0 = all interfaces)')
+    parser.add_argument('--port', type=int, default=5000,
+                        help='Port (default: 5000)')
+    parser.add_argument('--localhost', action='store_true',
+                        help='Restrict to localhost only (127.0.0.1)')
+    args = parser.parse_args()
+
+    host = '127.0.0.1' if args.localhost else args.host
     init_db()
-    print("ChemDBWeb running at http://127.0.0.1:5000")
-    app.run(debug=False, port=5000, host='127.0.0.1')
+    print(f"Molibrary running on http://{host}:{args.port}")
+    if host == '0.0.0.0':
+        import socket
+        try:
+            lan_ip = socket.gethostbyname(socket.gethostname())
+            print(f"  Local access : http://127.0.0.1:{args.port}")
+            print(f"  Network      : http://{lan_ip}:{args.port}")
+        except Exception:
+            pass
+    print("  Press Ctrl+C to stop.\n")
+    app.run(debug=False, port=args.port, host=host)

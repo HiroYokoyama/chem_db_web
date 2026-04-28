@@ -1,12 +1,32 @@
 {% extends "base.html" %}
-{% block title %}Library – ChemDBWeb{% endblock %}
+{% block title %}Library — Molibrary{% endblock %}
 {% block content %}
+
 <div class="page-header">
   <h1>Compound Library</h1>
-  <a class="btn btn-primary" href="{{ url_for('add') }}">+ Add Compound</a>
+  <div class="header-actions">
+    <a class="btn btn-secondary" href="{{ url_for('search') }}">🔍 Structure Search</a>
+    <a class="btn btn-primary" href="{{ url_for('add') }}">+ Add Compound</a>
+  </div>
 </div>
 
 {% if compounds %}
+
+<div class="stat-strip">
+  <div class="stat-chip">
+    <span class="stat-num">{{ compounds | length }}</span>
+    <span class="stat-label">compounds</span>
+  </div>
+  <div class="stat-chip">
+    <span class="stat-num">{{ compounds | selectattr('pdf_filename') | list | length }}</span>
+    <span class="stat-label">with PDF</span>
+  </div>
+  <div class="stat-chip">
+    <span class="stat-num">{{ compounds | selectattr('smiles') | list | length }}</span>
+    <span class="stat-label">with structure</span>
+  </div>
+</div>
+
 <div class="grid">
   {% for c in compounds %}
   <div class="card">
@@ -15,7 +35,7 @@
       <img src="{{ url_for('structure_svg') }}?smiles={{ c.smiles | urlencode }}&w=240&h=160"
            alt="{{ c.name }}" loading="lazy">
       {% else %}
-      <div class="no-structure">No structure</div>
+      <div class="no-structure"><span>⬡</span>No structure</div>
       {% endif %}
     </div>
     <div class="card-body">
@@ -23,22 +43,29 @@
         <a href="{{ url_for('view_compound', cid=c.id) }}">{{ c.name }}</a>
       </h3>
       {% if c.smiles %}
-      <p class="smiles-text" title="{{ c.smiles }}">{{ c.smiles[:60] }}{% if c.smiles|length > 60 %}…{% endif %}</p>
+      <p class="smiles-text" title="{{ c.smiles }}">
+        {{ c.smiles[:52] }}{% if c.smiles | length > 52 %}…{% endif %}
+      </p>
       {% endif %}
       <div class="card-meta">
+        <span class="date">{{ c.created_at[:10] }}</span>
         {% if c.pdf_filename %}
         <span class="badge badge-pdf">PDF</span>
         {% endif %}
-        <span class="date">{{ c.created_at[:10] }}</span>
       </div>
     </div>
   </div>
   {% endfor %}
 </div>
+
 {% else %}
+
 <div class="empty-state">
-  <p>No compounds yet.</p>
-  <a class="btn btn-primary" href="{{ url_for('add') }}">Add your first compound</a>
+  <div class="empty-icon">🧪</div>
+  <h3>No compounds yet</h3>
+  <p>Start building your compound library by adding your first structure.</p>
+  <a class="btn btn-primary btn-lg" href="{{ url_for('add') }}">Add your first compound</a>
 </div>
+
 {% endif %}
 {% endblock %}

@@ -1,52 +1,72 @@
 {% extends "base.html" %}
-{% block title %}Add Compound – ChemDBWeb{% endblock %}
+{% block title %}Add Compound — Molibrary{% endblock %}
 {% block content %}
+
 <div class="page-header">
   <h1>Add Compound</h1>
+  <a href="{{ url_for('index') }}" class="btn btn-ghost">← Library</a>
 </div>
 
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
 <form class="compound-form" method="POST" enctype="multipart/form-data">
   <div class="form-row">
-    <div class="form-col-left">
-      <label class="form-label required">Compound Name</label>
-      <input type="text" name="name" class="form-control" required placeholder="e.g. Aspirin">
+
+    <!-- Left column: identity + structure -->
+    <div>
+      <div class="form-group">
+        <label class="form-label required">Compound Name</label>
+        <input type="text" name="name" class="form-control" required
+               placeholder="e.g. Aspirin">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Author / Chemist</label>
+        <input type="text" name="author" class="form-control"
+               placeholder="e.g. Your Name">
+      </div>
 
       {% include "editor_snippet.html" %}
     </div>
 
-    <div class="form-col-right">
-      <label class="form-label">Notes / Procedure Summary</label>
-      <textarea name="notes" class="form-control" rows="6"
-                placeholder="Reaction conditions, yield, observations…"></textarea>
+    <!-- Right column: notes + PDF -->
+    <div>
+      <div class="form-group">
+        <label class="form-label">Notes / Procedure Summary</label>
+        <textarea name="notes" class="form-control" rows="7"
+                  placeholder="Reaction conditions, yield, observations…"></textarea>
+      </div>
 
-      <label class="form-label" style="margin-top:20px">Synthetic Protocol (PDF)</label>
-      <div class="file-drop-zone" id="drop_zone">
-        <input type="file" name="pdf" id="pdf_input" accept=".pdf" class="file-input">
-        <label for="pdf_input" class="file-label">
-          <span class="file-icon">📄</span>
-          <span id="file_name_display">Click or drag PDF here</span>
-        </label>
+      <div class="form-group" style="margin-top:4px">
+        <label class="form-label">Synthetic Protocol (PDF)</label>
+        <div class="file-drop-zone" id="drop_zone">
+          <input type="file" name="pdf" id="pdf_input" accept=".pdf" class="file-input">
+          <label for="pdf_input" class="file-label">
+            <span class="file-icon">📄</span>
+            <strong>Click to choose or drag a PDF here</strong>
+            <span id="file_name_display">No file selected</span>
+          </label>
+        </div>
       </div>
 
       <div class="form-actions">
-        <button type="submit" class="btn btn-primary btn-lg">💾 Save Compound</button>
+        <button type="submit" class="btn btn-primary btn-lg">Save Compound</button>
         <a href="{{ url_for('index') }}" class="btn btn-ghost">Cancel</a>
       </div>
     </div>
+
   </div>
 </form>
 
 <script>
-const inp = document.getElementById('pdf_input');
+const inp  = document.getElementById('pdf_input');
 const disp = document.getElementById('file_name_display');
 inp.addEventListener('change', () => {
-  disp.textContent = inp.files[0]?.name || 'Click or drag PDF here';
+  disp.textContent = inp.files[0]?.name || 'No file selected';
 });
 const dz = document.getElementById('drop_zone');
-dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
-dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', ()  => dz.classList.remove('dragover'));
 dz.addEventListener('drop', e => {
   e.preventDefault(); dz.classList.remove('dragover');
   if (e.dataTransfer.files[0]) {

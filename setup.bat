@@ -1,6 +1,6 @@
 @echo off
 echo ============================================================
-echo  ChemDB Setup
+echo  Molibrary Setup
 echo ============================================================
 echo.
 
@@ -36,7 +36,15 @@ if errorlevel 1 (
 )
 
 echo.
+echo Downloading offline assets (JSME editor)...
+venv\Scripts\python.exe download_assets.py
+if errorlevel 1 (
+    echo WARNING: Asset download had errors. Molibrary will use CDN as fallback.
+)
+
+echo.
 echo ============================================================
-echo  Setup complete!  Run start.bat to launch ChemDBWeb.
+echo  Setup complete!  Run start.bat to launch Molibrary.
+echo  The app now works fully offline.
 echo ============================================================
 pause

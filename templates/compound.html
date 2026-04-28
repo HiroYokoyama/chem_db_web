@@ -1,12 +1,13 @@
 {% extends "base.html" %}
-{% block title %}{{ c.name }} – ChemDBWeb{% endblock %}
+{% block title %}{{ c.name }} — Molibrary{% endblock %}
 {% block content %}
+
 <div class="page-header">
   <h1>{{ c.name }}</h1>
   <div class="header-actions">
-    <a href="{{ url_for('edit_compound', cid=c.id) }}" class="btn btn-secondary">✏️ Edit</a>
+    <a href="{{ url_for('edit_compound', cid=c.id) }}" class="btn btn-secondary">✏ Edit</a>
     <form method="POST" action="{{ url_for('delete_compound', cid=c.id) }}"
-          onsubmit="return confirm('Delete this compound?');" style="display:inline">
+          onsubmit="return confirm('Permanently delete {{ c.name }}?');" style="display:inline">
       <button type="submit" class="btn btn-danger">🗑 Delete</button>
     </form>
     <a href="{{ url_for('index') }}" class="btn btn-ghost">← Library</a>
@@ -14,49 +15,78 @@
 </div>
 
 <div class="detail-grid">
-  <div class="detail-structure">
+
+  <!-- Structure panel -->
+  <div class="structure-panel">
     <div class="structure-box">
       {% if svg %}
         {{ svg | safe }}
       {% else %}
-        <div class="no-structure">No structure</div>
+        <div class="no-structure"><span>⬡</span>No structure</div>
       {% endif %}
     </div>
-    {% if c.smiles %}
-    <div class="smiles-block">
-      <span class="label">SMILES</span>
-      <code id="smi_code">{{ c.smiles }}</code>
-      <button class="copy-btn" onclick="navigator.clipboard.writeText('{{ c.smiles }}').then(()=>this.textContent='✓')">Copy</button>
+
+    <div class="identifier-list">
+      {% if c.smiles %}
+      <div class="id-row">
+        <span class="id-label">SMILES</span>
+        <code class="id-value" id="smi_val">{{ c.smiles }}</code>
+        <button class="copy-btn"
+                onclick="navigator.clipboard.writeText('{{ c.smiles | replace("'", "\\'") }}').then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)})">
+          Copy
+        </button>
+      </div>
+      {% endif %}
+
+      {% if c.inchi_key %}
+      <div class="id-row">
+        <span class="id-label">InChI Key</span>
+        <code class="id-value" id="inchi_val">{{ c.inchi_key }}</code>
+        <button class="copy-btn"
+                onclick="navigator.clipboard.writeText('{{ c.inchi_key }}').then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)})">
+          Copy
+        </button>
+      </div>
+      {% endif %}
     </div>
-    {% endif %}
   </div>
 
-  <div class="detail-info">
-    <div class="info-section">
-      <h3>Added</h3>
-      <p>{{ c.created_at }}</p>
+  <!-- Info panel -->
+  <div class="info-panel">
+
+    <div class="info-card">
+      <div class="info-card-title">Metadata</div>
+      <p><strong>Added:</strong> {{ c.created_at }}</p>
+      {% if c.author %}
+      <p style="margin-top:6px"><strong>Author:</strong> {{ c.author }}</p>
+      {% endif %}
     </div>
 
     {% if c.notes %}
-    <div class="info-section">
-      <h3>Notes / Protocol Summary</h3>
+    <div class="info-card">
+      <div class="info-card-title">Notes / Protocol Summary</div>
       <p class="notes-text">{{ c.notes }}</p>
     </div>
     {% endif %}
 
-    {% if c.pdf_filename %}
-    <div class="info-section">
-      <h3>Synthetic Protocol</h3>
-      <a class="btn btn-primary" href="{{ url_for('serve_pdf', filename=c.pdf_filename) }}"
-         target="_blank">📄 Open PDF</a>
+    <div class="info-card">
+      <div class="info-card-title">Synthetic Protocol (PDF)</div>
+      {% if c.pdf_filename %}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <a class="btn btn-primary" href="{{ url_for('serve_pdf', filename=c.pdf_filename) }}"
+           target="_blank">📄 Open PDF</a>
+        <a class="btn btn-secondary" href="{{ url_for('download_pdf', filename=c.pdf_filename) }}">
+          ⬇ Download
+        </a>
+      </div>
       <p class="file-name-hint">{{ c.pdf_filename }}</p>
+      {% else %}
+      <p class="muted">No PDF attached.
+        <a href="{{ url_for('edit_compound', cid=c.id) }}">Upload one?</a>
+      </p>
+      {% endif %}
     </div>
-    {% else %}
-    <div class="info-section">
-      <h3>Synthetic Protocol</h3>
-      <p class="muted">No PDF attached. <a href="{{ url_for('edit_compound', cid=c.id) }}">Upload one?</a></p>
-    </div>
-    {% endif %}
+
   </div>
 </div>
 {% endblock %}

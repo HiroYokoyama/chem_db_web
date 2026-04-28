@@ -1,6 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Structure Search – ChemDBWeb{% endblock %}
+{% block title %}Structure Search — Molibrary{% endblock %}
 {% block content %}
+
 <div class="page-header">
   <h1>Structure Search</h1>
 </div>
@@ -8,47 +9,59 @@
 {% if not rdkit %}
 <div class="alert alert-error">
   RDKit is not installed. Structure search is unavailable.
-  Run <code>pip install rdkit-pypi</code> and restart the server.
+  Run <code>pip install rdkit</code> and restart the server.
 </div>
 {% endif %}
 
 <div class="search-layout">
+
+  <!-- Search panel -->
   <div class="search-panel">
+
     <div class="search-controls">
       <label class="form-label">Search Mode</label>
       <div class="radio-group">
         <label><input type="radio" name="mode" value="substructure" checked> Substructure</label>
         <label><input type="radio" name="mode" value="similarity"> Similarity</label>
       </div>
-      <div id="threshold_row" style="display:none; margin-top:8px">
-        <label class="form-label">Tanimoto threshold:
-          <input type="range" id="threshold" min="0.1" max="1.0" step="0.05" value="0.5">
-          <span id="thr_val">0.50</span>
+
+      <div id="threshold_row" class="threshold-row" style="display:none">
+        <label class="form-label" style="margin-top:12px">
+          Tanimoto threshold:
+          <strong id="thr_val" style="color:var(--accent-hi)">0.50</strong>
         </label>
+        <input type="range" id="threshold" min="0.1" max="1.0" step="0.05" value="0.5">
       </div>
     </div>
 
     {% set init_smiles = '' %}
-    {% set init_mol = '' %}
+    {% set init_mol    = '' %}
     {% include "editor_snippet.html" %}
 
-    <div class="search-actions">
-      <button class="btn btn-primary btn-lg" onclick="doSearch()" {% if not rdkit %}disabled{% endif %}>
+    <div class="search-actions" style="margin-top:16px">
+      <button class="btn btn-primary btn-lg" onclick="doSearch()"
+              {% if not rdkit %}disabled{% endif %}>
         🔍 Search
       </button>
       <button class="btn btn-ghost" onclick="clearResults()">Clear</button>
     </div>
+
   </div>
 
+  <!-- Results panel -->
   <div class="results-panel">
-    <div id="results_header" style="display:none">
-      <h2>Results <span id="results_count" class="badge"></span></h2>
+    <div id="results_header" class="results-header" style="display:none">
+      <h2>Results</h2>
+      <span id="results_count" class="badge"></span>
     </div>
     <div id="results_container"></div>
     <div id="no_results" class="empty-state" style="display:none">
-      <p>No matching compounds found.</p>
+      <div class="empty-icon">🔬</div>
+      <h3>No matches found</h3>
+      <p>Try a different query or lower the similarity threshold.</p>
     </div>
   </div>
+
 </div>
 
 <script>
@@ -75,16 +88,16 @@ async function doSearch() {
 
   const mode = document.querySelector('input[name="mode"]:checked').value;
   const thr  = parseFloat(threshold.value);
+  const btn  = document.querySelector('.search-actions .btn-primary');
 
-  const btn = document.querySelector('.search-actions .btn-primary');
   btn.textContent = '⏳ Searching…';
   btn.disabled = true;
 
   try {
     const resp = await fetch('/api/search', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({smiles, mode, threshold: thr})
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ smiles, mode, threshold: thr })
     });
     const data = await resp.json();
     if (data.error) { alert(data.error); return; }
@@ -103,32 +116,36 @@ function renderResults(results, mode) {
   const box  = document.getElementById('results_container');
   const none = document.getElementById('no_results');
 
-  if (results.length === 0) {
+  if (!results.length) {
     hdr.style.display = 'none';
     box.innerHTML = '';
     none.style.display = 'block';
     return;
   }
+
   none.style.display = 'none';
-  hdr.style.display = 'block';
-  cnt.textContent = results.length;
+  hdr.style.display  = 'flex';
+  cnt.textContent    = results.length;
 
   box.innerHTML = results.map(r => `
     <div class="result-card">
       <div class="result-img">
         ${r.smiles
-          ? `<img src="/api/structure.svg?smiles=${encodeURIComponent(r.smiles)}&w=200&h=140" alt="${r.name}">`
-          : '<div class="no-structure">No structure</div>'}
+          ? `<img src="/api/structure.svg?smiles=${encodeURIComponent(r.smiles)}&w=180&h=130" alt="${r.name}">`
+          : '<div class="no-structure"><span>⬡</span></div>'}
       </div>
       <div class="result-body">
         <h3><a href="/compound/${r.id}">${r.name}</a></h3>
+        ${r.author ? `<p style="font-size:12px;color:var(--muted);margin-bottom:4px">by ${r.author}</p>` : ''}
         ${mode === 'similarity' && r.similarity !== undefined
-          ? `<p class="similarity">Similarity: <strong>${r.similarity}</strong></p>` : ''}
-        ${r.smiles ? `<p class="smiles-text" title="${r.smiles}">${r.smiles.substring(0,60)}${r.smiles.length>60?'…':''}</p>` : ''}
+          ? `<span class="similarity">● ${(r.similarity * 100).toFixed(1)}% similar</span>` : ''}
+        ${r.smiles
+          ? `<p class="result-smiles">${r.smiles.substring(0, 70)}${r.smiles.length > 70 ? '…' : ''}</p>`
+          : ''}
         <div class="result-actions">
-          <a href="/compound/${r.id}" class="btn btn-sm">View</a>
+          <a href="/compound/${r.id}" class="btn btn-sm btn-secondary">View</a>
           ${r.pdf_filename
-            ? `<a href="/pdf/${encodeURIComponent(r.pdf_filename)}" target="_blank" class="btn btn-sm">📄 PDF</a>`
+            ? `<a href="/pdf/${encodeURIComponent(r.pdf_filename)}" target="_blank" class="btn btn-sm btn-ghost">📄 PDF</a>`
             : ''}
         </div>
       </div>
@@ -137,12 +154,11 @@ function renderResults(results, mode) {
 }
 
 function clearResults() {
-  document.getElementById('results_header').style.display = 'none';
-  document.getElementById('results_container').innerHTML = '';
-  document.getElementById('no_results').style.display = 'none';
+  document.getElementById('results_header').style.display    = 'none';
+  document.getElementById('results_container').innerHTML     = '';
+  document.getElementById('no_results').style.display        = 'none';
 }
 
-// Allow Enter key on SMILES input to trigger search
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('smiles_input').addEventListener('keydown', e => {
     if (e.key === 'Enter') doSearch();

@@ -1,5 +1,5 @@
 @echo off
-echo Starting ChemDBWeb...
+echo Starting Molibrary...
 
 if exist "venv\Scripts\activate.bat" (
     call venv\Scripts\activate.bat
@@ -9,8 +9,9 @@ if exist "venv\Scripts\activate.bat" (
     exit /b 1
 )
 
-echo Open http://127.0.0.1:5000 in your browser
-echo Press Ctrl+C to stop.
 echo.
-python app.py
+echo Molibrary is starting...
+echo Use --localhost flag to restrict access to this PC only.
+echo.
+python app.py %*
 pause

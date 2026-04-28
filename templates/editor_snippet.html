@@ -1,64 +1,76 @@
-{# Reusable JSME editor snippet - include inside a form #}
+{# Reusable JSME editor snippet — include inside a form #}
 {# Expects: init_smiles (optional), init_mol (optional) #}
 <div class="editor-section">
-  <label class="form-label">Structure (draw below)</label>
+  <label class="form-label">Structure</label>
   <div id="jsme_wrap">
     <div id="jsme_container"></div>
-    <div class="editor-note">
-      JSME editor requires internet on first load. Alternatively paste SMILES below.
-    </div>
+  </div>
+  <div class="editor-note">
+    ℹ Draw a structure above, or paste SMILES below and click Load.
   </div>
   <div class="editor-actions">
-    <button type="button" class="btn btn-sm" onclick="loadFromSmiles()">Load from SMILES ↓</button>
-    <button type="button" class="btn btn-sm btn-secondary" onclick="getFromEditor()">Capture from editor ↑</button>
+    <button type="button" class="btn btn-sm btn-secondary" onclick="loadFromSmiles()">↓ Load from SMILES</button>
+    <button type="button" class="btn btn-sm btn-ghost" onclick="getFromEditor()">↑ Capture from editor</button>
   </div>
-  <label class="form-label" style="margin-top:12px">SMILES <span class="hint">(auto-filled from editor)</span></label>
-  <input type="text" name="smiles" id="smiles_input" class="form-control font-mono"
-         value="{{ init_smiles or '' }}" placeholder="e.g. CCO or CC(=O)O">
+  <label class="form-label" style="margin-top:10px">
+    SMILES <span class="hint">(auto-filled from editor)</span>
+  </label>
+  <input type="text" name="smiles" id="smiles_input" class="form-control font-mono" value="{{ init_smiles or '' }}"
+    placeholder="e.g. CCO  or  CC(=O)O">
   <input type="hidden" name="molblock" id="molblock_input" value="{{ init_mol or '' }}">
 </div>
 
-<script src="https://jsme-editor.github.io/dist/JSME_2022-04-05/jsme/jsme.nocache.js"></script>
 <script>
-var jsmeApplet = null;
+  var jsmeApplet = null;
 
-function jsmeOnLoad() {
-  jsmeApplet = new JSApplet.JSME("jsme_container", "520px", "380px", {
-    options: "query,hydrogens,nozoom"
-  });
-  {% if init_smiles %}
-  jsmeApplet.readGenericMolecularInput("{{ init_smiles | replace('"', '\\"') }}");
-  {% elif init_mol %}
-  jsmeApplet.readMolFile(`{{ init_mol | replace('`', '\\`') }}`);
-  {% endif %}
-}
-
-function getFromEditor() {
-  if (!jsmeApplet) { alert("Editor not loaded yet."); return; }
-  var smi = jsmeApplet.smiles();
-  var mol = jsmeApplet.molFile();
-  if (smi) document.getElementById("smiles_input").value = smi;
-  if (mol)  document.getElementById("molblock_input").value = mol;
-}
-
-function loadFromSmiles() {
-  if (!jsmeApplet) { alert("Editor not loaded yet."); return; }
-  var smi = document.getElementById("smiles_input").value.trim();
-  if (smi) jsmeApplet.readGenericMolecularInput(smi);
-}
-
-// Auto-capture before form submit
-document.addEventListener("DOMContentLoaded", function() {
-  var form = document.querySelector("form.compound-form");
-  if (form) {
-    form.addEventListener("submit", function() {
-      if (jsmeApplet) {
-        var smi = jsmeApplet.smiles();
-        var mol = jsmeApplet.molFile();
-        if (smi) document.getElementById("smiles_input").value = smi;
-        if (mol)  document.getElementById("molblock_input").value = mol;
-      }
+  function jsmeOnLoad() {
+    var container = document.getElementById("jsme_container");
+    var w = Math.max(container.offsetWidth || 520, 280);
+    jsmeApplet = new JSApplet.JSME("jsme_container", w + "px", "380px", {
+      options: "query,hydrogens,nozoom"
     });
+    {% if init_smiles %}
+    jsmeApplet.readGenericMolecularInput("{{ init_smiles | replace('\\', '\\\\') | replace('"', '\\"') | safe }}");
+    {% elif init_mol %}
+    jsmeApplet.readMolFile(`{{ init_mol | replace('\\', '\\\\') | replace('`', '\\`') | safe }}`);
+    {% endif %}
   }
-});
+</script>
+
+{% if jsme_local %}
+<script src="{{ url_for('static', filename='jsme/jsme.nocache.js') }}"></script>
+{% else %}
+<script src="https://jsme-editor.github.io/dist/JSME_2022-04-05/jsme/jsme.nocache.js"></script>
+{% endif %}
+
+<script>
+
+  function getFromEditor() {
+    if (!jsmeApplet) { alert("Editor not loaded yet."); return; }
+    var smi = jsmeApplet.smiles();
+    var mol = jsmeApplet.molFile();
+    if (smi) document.getElementById("smiles_input").value = smi;
+    if (mol) document.getElementById("molblock_input").value = mol;
+  }
+
+  function loadFromSmiles() {
+    if (!jsmeApplet) { alert("Editor not loaded yet."); return; }
+    var smi = document.getElementById("smiles_input").value.trim();
+    if (smi) jsmeApplet.readGenericMolecularInput(smi);
+  }
+
+  // Auto-capture on form submit
+  document.addEventListener("DOMContentLoaded", function () {
+    var form = document.querySelector("form.compound-form");
+    if (form) {
+      form.addEventListener("submit", function () {
+        if (jsmeApplet) {
+          var smi = jsmeApplet.smiles();
+          var mol = jsmeApplet.molFile();
+          if (smi) document.getElementById("smiles_input").value = smi;
+          if (mol) document.getElementById("molblock_input").value = mol;
+        }
+      });
+    }
+  });
 </script>

@@ -1,99 +1,161 @@
-# ChemDBWeb — Local Chemical Structure & Protocol Database
+# Molibrary — Local Chemical Structure & Protocol Database
 
-A local web application for depositing, editing, and searching organic chemical structures with linked synthetic protocol PDFs.
+A self-hosted, offline-capable web application for depositing, searching,
+and viewing organic chemical structures with linked synthetic protocol PDFs.
+Integrates with **MoleditPy** via the bundled plugin.
+
+---
+
+## Quick Start (Windows)
+
+```
+1. setup.bat      ← installs Python dependencies + downloads offline editor (run once)
+2. start.bat      ← starts the server
+3. Open browser   http://127.0.0.1:5000
+```
+
+## Quick Start (Linux / macOS)
+
+```bash
+chmod +x setup.sh start.sh
+./setup.sh        # installs dependencies + downloads offline editor (run once)
+./start.sh        # starts the server
+# Open http://127.0.0.1:5000
+```
 
 ---
 
 ## Requirements
 
-- Python 3.10 or later
-- Internet connection (first load only, for the JSME structure editor)
-
-`setup.bat` installs the `rdkit` package from PyPI. If you see old instructions mentioning `rdkit-pypi`, use `rdkit` instead.
-
----
-
-## Quick Start
-
-```
-1. Double-click  setup.bat   ← installs dependencies (run once)
-2. Double-click  start.bat   ← starts the server
-3. Open browser  http://127.0.0.1:5000
-```
+| Requirement | Version |
+|---|---|
+| Python | 3.10 or later |
+| Internet | **Setup only** — to download `flask`, `rdkit`, and the JSME editor |
+| Internet at runtime | **Not required** — fully offline after setup |
 
 ---
 
 ## Features
 
 ### Compound Library
-- Grid view of all saved compounds with structure thumbnails
-- Click any card to open the compound detail page
+- Card grid with structure thumbnails and PDF badges
+- Sort by date added; stats strip shows total / with-PDF / with-structure counts
 
 ### Add / Edit Compounds
-- **Interactive structure editor** (JSME) — draw molecules directly in the browser
-- **SMILES input** — type SMILES manually or sync from/to the editor
-- **PDF upload** — drag-and-drop or click to attach a synthetic protocol PDF
-- **Notes field** — store reaction conditions, yield, observations, etc.
+- **JSME structure editor** — draw molecules directly in the browser (offline after setup)
+- **SMILES input** — type or paste; sync to/from the editor in one click
+- **Author / Chemist** field — track who added each compound
+- **PDF upload** — drag-and-drop or click; supports any filename including non-ASCII
+- **Notes** — reaction conditions, yield, observations
+
+### Compound Detail Page
+- Structure rendered by RDKit (SVG)
+- One-click copy of SMILES and InChI Key
+- Open PDF in browser or force-download
 
 ### Structure Search
 | Mode | Description |
 |---|---|
-| **Substructure** | Find all compounds that contain the drawn query fragment |
-| **Similarity** | Tanimoto similarity search (Morgan fingerprints) with adjustable threshold |
+| **Substructure** | Find all compounds containing the drawn query fragment |
+| **Similarity** | Tanimoto (Morgan fingerprint) search with adjustable threshold |
 
-Search results show structure images, compound names, and a direct link to the PDF.
+### Text Search (API)
+Search across name, SMILES, InChI Key, and notes via `GET /api/compounds?q=`.
 
-### PDF Management
-- PDFs are stored locally in the `pdfs/` folder
-- Open PDFs directly in the browser from the compound detail or search results page
-- Replace a PDF at any time via the Edit page
+---
+
+## Network Access
+
+By default the server binds to **all interfaces** (`0.0.0.0:5000`), so it is
+reachable from any device on the same LAN or intranet:
+
+```
+http://127.0.0.1:5000       ← this PC
+http://192.168.x.x:5000     ← other devices on local network
+http://labserver:5000        ← by hostname
+```
+
+To restrict to localhost only:
+
+```bat
+REM Windows
+start.bat --localhost
+
+# Linux / macOS
+./start.sh --localhost
+```
+
+Custom port:
+
+```
+start.bat --port 8080
+./start.sh --port 8080
+```
+
+---
+
+## MoleditPy Plugin
+
+`molibrary_plugin.py` connects MoleditPy to a running Molibrary server.
+
+**Installation:** copy the file to `~/.moleditpy/plugins/` and reload plugins.
+**Menu:** `Database > Molibrary`
+
+### Plugin features
+| Feature | Description |
+|---|---|
+| Text search | Search by name, SMILES, InChI Key, or notes |
+| Substructure search | Find fragments of the current molecule |
+| Similarity search | Tanimoto search with adjustable threshold |
+| Current Molecule | One-click search using the molecule open in MoleditPy |
+| Open in browser | Double-click any result → compound page opens in browser |
+| Auto-open | If exactly one result is found, the page opens automatically |
+| Load into editor | Import selected compound's structure into the MoleditPy 2D editor |
+| Intranet support | Configurable server URL (localhost, LAN IP, or hostname); saved in `molibrary_plugin.json` |
 
 ---
 
 ## File Structure
 
 ```
-chem_db/
-├── app.py              # Flask application (backend + API)
-├── requirements.txt    # Python dependencies
-├── setup.bat           # One-time setup script (Windows)
-├── start.bat           # Start the server (Windows)
-├── compounds.db        # SQLite database (auto-created on first run)
-├── pdfs/               # Uploaded PDF files
+chem_db_web/
+├── app.py                       # Flask backend + REST API
+├── requirements.txt             # Python dependencies
+├── setup.bat / setup.sh         # One-time setup (Windows / Linux)
+├── start.bat  / start.sh        # Launch server
+├── download_assets.py           # Downloads JSME editor for offline use
+├── molibrary_plugin.py        # MoleditPy plugin
+├── compounds.db                 # SQLite database (auto-created)
+├── pdfs/                        # Uploaded PDF files
 ├── static/
-│   └── style.css       # Dark-theme stylesheet
-└── templates/
-    ├── base.html        # Shared layout and navbar
-    ├── index.html       # Compound library (grid view)
-    ├── add.html         # Add compound form
-    ├── edit.html        # Edit compound form
-    ├── compound.html    # Compound detail page
-    ├── search.html      # Structure search page
-    └── editor_snippet.html  # Reusable JSME editor block
+│   ├── style.css                # Professional dark-theme stylesheet
+│   └── jsme/                    # JSME editor files (downloaded by setup)
+├── templates/
+│   ├── base.html
+│   ├── index.html
+│   ├── add.html
+│   ├── edit.html
+│   ├── compound.html
+│   ├── search.html
+│   └── editor_snippet.html
+└── tests/
+    ├── conftest.py
+    └── test_app.py              # 46 pytest tests
 ```
 
 ---
 
-## Technology Stack
+## API Reference
 
-| Component | Library |
-|---|---|
-| Backend | [Flask](https://flask.palletsprojects.com/) |
-| Chemistry | [RDKit](https://www.rdkit.org/) — structure rendering, substructure & similarity search |
-| Structure Editor | [JSME](https://jsme-editor.github.io/) — JavaScript Molecule Editor |
-| Database | SQLite (via Python `sqlite3`) |
-| PDF Storage | Local filesystem (`pdfs/` directory) |
-
----
-
-## API Endpoints
-
-| Method | URL | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/structure.svg?smiles=<SMILES>` | Returns an SVG image of the structure |
-| `POST` | `/api/search` | Structure search (JSON body below) |
+| `GET` | `/api/structure.svg?smiles=…&w=…&h=…` | RDKit SVG rendering |
+| `GET` | `/api/compounds?q=…` | Text search (name, SMILES, InChI Key, notes) |
+| `POST` | `/api/search` | Structure search (substructure / similarity) |
+| `GET` | `/pdf/<filename>` | View PDF in browser |
+| `GET` | `/pdf/<filename>/download` | Force-download PDF |
 
-**Search request body:**
+**Structure search body:**
 ```json
 {
   "smiles": "c1ccccc1",
@@ -101,14 +163,37 @@ chem_db/
   "threshold": 0.5
 }
 ```
-- `mode`: `"substructure"` or `"similarity"`
-- `threshold`: Tanimoto cutoff for similarity mode (0.0–1.0)
 
 ---
 
-## Notes
+## Running Tests
 
-- The JSME editor is loaded from `jsme-editor.github.io` and cached by the browser — internet is required on the very first load per browser.
-- All structure searching and rendering runs entirely locally via RDKit.
-- PDF files are never renamed — the original filename is preserved in the `pdfs/` folder.
-- The database file (`compounds.db`) is portable; copy it along with `pdfs/` to back up or migrate your data.
+```bash
+cd chem_db_web
+pytest tests/ -v
+```
+
+CI runs automatically on every push via `.github/workflows/test.yml`.
+
+---
+
+## Database Backup
+
+The entire database is two items:
+```
+compounds.db    ← all compound metadata, SMILES, InChI Keys
+pdfs/           ← all attached PDF files
+```
+Copy both to back up or migrate to another machine.
+
+---
+
+## Technology Stack
+
+| Component | Library |
+|---|---|
+| Backend | Flask 3 |
+| Chemistry | RDKit — SVG rendering, substructure & similarity search, InChI Key |
+| Structure editor | JSME (served locally after setup) |
+| Database | SQLite |
+| CI | GitHub Actions |
