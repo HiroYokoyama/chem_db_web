@@ -11,7 +11,7 @@ import sys
 import urllib.request
 import urllib.error
 
-JSME_BASE = "https://jsme-editor.github.io/dist/JSME_2022-04-05/jsme/"
+JSME_BASE = "https://jsme-editor.github.io/dist/jsme/"
 OUT_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "static", "jsme")
 
@@ -75,7 +75,7 @@ def main():
 
     print()
     if err == 0:
-        print(f"Done. {ok} file(s) downloaded — Molibrary will now work fully offline.")
+        print(f"Done. {ok} file(s) downloaded - Molibrary will now work fully offline.")
     else:
         print(f"Done with {err} error(s). Some cache fragments may be missing.")
         print("Molibrary will fall back to CDN for those files at runtime.")
