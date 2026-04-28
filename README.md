@@ -4,6 +4,8 @@ A self-hosted, offline-capable web application for depositing, searching,
 and viewing organic chemical structures with linked synthetic protocol PDFs.
 Integrates with **MoleditPy** via the bundled plugin.
 
+![](./img/main.png)
+
 ---
 
 ## Quick Start (Windows)
