@@ -18,11 +18,22 @@ if not exist "venv" (
     python -m venv venv
 )
 
-:: Activate and install
+:: Install with the venv interpreter directly so pip upgrades itself in-place.
 echo Installing dependencies...
-call venv\Scripts\activate.bat
-pip install --upgrade pip -q
-pip install flask rdkit-pypi werkzeug -q
+venv\Scripts\python.exe -m pip install --upgrade pip -q
+if errorlevel 1 (
+    echo ERROR: Failed to upgrade pip inside the virtual environment.
+    pause
+    exit /b 1
+)
+
+venv\Scripts\python.exe -m pip install -r requirements.txt -q
+if errorlevel 1 (
+    echo ERROR: Dependency installation failed.
+    echo If RDKit fails, confirm the virtual environment was created with a supported Python build.
+    pause
+    exit /b 1
+)
 
 echo.
 echo ============================================================

@@ -9,6 +9,8 @@ A local web application for depositing, editing, and searching organic chemical 
 - Python 3.10 or later
 - Internet connection (first load only, for the JSME structure editor)
 
+`setup.bat` installs the `rdkit` package from PyPI. If you see old instructions mentioning `rdkit-pypi`, use `rdkit` instead.
+
 ---
 
 ## Quick Start
