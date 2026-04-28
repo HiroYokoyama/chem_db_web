@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 PLUGIN_NAME        = "Molibrary Browser"
-PLUGIN_VERSION     = "2026.04.28"
+PLUGIN_VERSION     = "1.0.0"
 PLUGIN_AUTHOR      = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Search Molibrary (text / substructure / similarity) and open compound pages."
 PLUGIN_CATEGORY    = "Database"
