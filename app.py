@@ -22,15 +22,16 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max upload
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 DB_PATH   = os.path.join(BASE_DIR, 'compounds.db')
 PDF_DIR   = os.path.join(BASE_DIR, 'pdfs')
-JSME_LOCAL = os.path.isfile(
-    os.path.join(BASE_DIR, 'static', 'jsme', 'jsme.nocache.js')
-)
 os.makedirs(PDF_DIR, exist_ok=True)
 
-# Inject jsme_local into every template automatically
+JSME_LOCAL = os.path.isfile(os.path.join(BASE_DIR, 'static', 'jsme', 'jsme.nocache.js'))
+
 @app.context_processor
 def _inject_globals():
-    return {'jsme_local': JSME_LOCAL}
+    return {
+        'jsme_local': JSME_LOCAL,
+        'rdkit': RDKIT
+    }
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
