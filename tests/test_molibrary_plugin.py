@@ -2,23 +2,35 @@ import sys
 import os
 import pytest
 from unittest.mock import MagicMock, patch
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication
+try:
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QApplication
+    HAS_PYQT = True
+except ImportError:
+    HAS_PYQT = False
 
 # Ensure the plugin directory is in sys.path
 # Test is in chem_db_web/tests/, plugin is in chem_db_web/moleditpy_plugin/
 plugin_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "moleditpy_plugin")
 sys.path.append(plugin_dir)
 
-from molibrary_plugin import MolibraryBrowserDialog
+if HAS_PYQT:
+    from molibrary_plugin import MolibraryBrowserDialog
+else:
+    # Create a dummy class so the test collection doesn't fail
+    class MolibraryBrowserDialog:
+        pass
 
 @pytest.fixture
 def mock_context():
+    if not HAS_PYQT:
+        pytest.skip("PyQt6 not installed")
     context = MagicMock()
     context.get_main_window.return_value = None
     context.current_molecule = None
     return context
 
+@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
 def test_on_results_single_hit_no_auto_open(qtbot, mock_context):
     """
     Test that when exactly one result is found, the row is selected 
@@ -51,6 +63,7 @@ def test_on_results_single_hit_no_auto_open(qtbot, mock_context):
         assert dialog._table.currentRow() == 0
         assert "1 compound(s) found" in dialog._lbl_status.text()
 
+@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
 def test_manual_open_still_works(qtbot, mock_context):
     """
     Test that clicking the 'Open in Browser' button still opens the browser.
