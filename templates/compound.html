@@ -5,12 +5,18 @@
 <div class="page-header">
   <h1>{{ c.name }}</h1>
   <div class="header-actions">
-    <a href="{{ url_for('edit_compound', cid=c.id) }}" class="btn btn-secondary">✏ Edit</a>
+    <a href="{{ url_for('edit_compound', cid=c.id) }}" class="btn btn-secondary">
+      <svg class="icon" aria-hidden="true"><use href="#icon-edit"/></svg> Edit
+    </a>
     <form method="POST" action="{{ url_for('delete_compound', cid=c.id) }}"
           onsubmit="return confirm('Permanently delete ' + {{ c.name | tojson }} + '?');" style="display:inline">
-      <button type="submit" class="btn btn-danger">🗑 Delete</button>
+      <button type="submit" class="btn btn-danger">
+        <svg class="icon" aria-hidden="true"><use href="#icon-trash"/></svg> Delete
+      </button>
     </form>
-    <a href="{{ url_for('index') }}" class="btn btn-ghost">← Library</a>
+    <a href="{{ url_for('index') }}" class="btn btn-ghost">
+      <svg class="icon" aria-hidden="true"><use href="#icon-arrow-left"/></svg> Library
+    </a>
   </div>
 </div>
 
@@ -22,7 +28,10 @@
       {% if svg %}
         {{ svg | safe }}
       {% else %}
-        <div class="no-structure"><span>⬡</span>No structure</div>
+        <div class="no-structure">
+          <svg class="icon icon-xl" aria-hidden="true"><use href="#icon-hexagon"/></svg>
+          No structure
+        </div>
       {% endif %}
     </div>
 
@@ -31,9 +40,8 @@
       <div class="id-row">
         <span class="id-label">SMILES</span>
         <code class="id-value" id="smi_val">{{ c.smiles }}</code>
-        <button class="copy-btn"
-                onclick="navigator.clipboard.writeText(document.getElementById('smi_val').textContent).then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)})">
-          Copy
+        <button class="copy-btn" onclick="copyId(this,'smi_val')" title="Copy SMILES">
+          <svg class="icon" aria-hidden="true"><use href="#icon-copy"/></svg>
         </button>
       </div>
       {% endif %}
@@ -42,9 +50,8 @@
       <div class="id-row">
         <span class="id-label">InChI Key</span>
         <code class="id-value" id="inchi_val">{{ c.inchi_key }}</code>
-        <button class="copy-btn"
-                onclick="navigator.clipboard.writeText(document.getElementById('inchi_val').textContent).then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)})">
-          Copy
+        <button class="copy-btn" onclick="copyId(this,'inchi_val')" title="Copy InChI Key">
+          <svg class="icon" aria-hidden="true"><use href="#icon-copy"/></svg>
         </button>
       </div>
       {% endif %}
@@ -74,9 +81,11 @@
       {% if c.pdf_filename %}
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <a class="btn btn-primary" href="{{ url_for('serve_pdf', filename=c.pdf_filename) }}"
-           target="_blank">📄 Open PDF</a>
+           target="_blank">
+          <svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg> Open PDF
+        </a>
         <a class="btn btn-secondary" href="{{ url_for('download_pdf', filename=c.pdf_filename) }}">
-          ⬇ Download
+          <svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg> Download
         </a>
       </div>
       <p class="file-name-hint">{{ c.pdf_filename }}</p>

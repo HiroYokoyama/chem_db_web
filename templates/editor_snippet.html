@@ -6,11 +6,16 @@
     <div id="jsme_container"></div>
   </div>
   <div class="editor-note">
-    ℹ Draw a structure above, or paste SMILES below and click Load.
+    <svg class="icon" aria-hidden="true"><use href="#icon-info"/></svg>
+    Draw a structure above, or paste SMILES below and click Load.
   </div>
   <div class="editor-actions">
-    <button type="button" class="btn btn-sm btn-secondary" onclick="loadFromSmiles()">↓ Load from SMILES</button>
-    <button type="button" class="btn btn-sm btn-ghost" onclick="getFromEditor()">↑ Capture from editor</button>
+    <button type="button" class="btn btn-sm btn-secondary" onclick="loadFromSmiles()">
+      <svg class="icon" aria-hidden="true"><use href="#icon-arrow-down"/></svg> Load from SMILES
+    </button>
+    <button type="button" class="btn btn-sm btn-ghost" onclick="getFromEditor()">
+      <svg class="icon" aria-hidden="true"><use href="#icon-arrow-up"/></svg> Capture from editor
+    </button>
   </div>
   <label class="form-label" style="margin-top:10px">
     SMILES <span class="hint">(auto-filled from editor)</span>

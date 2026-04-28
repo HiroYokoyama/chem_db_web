@@ -5,8 +5,12 @@
 <div class="page-header">
   <h1>Compound Library</h1>
   <div class="header-actions">
-    <a class="btn btn-secondary" href="{{ url_for('search') }}">🔍 Structure Search</a>
-    <a class="btn btn-primary" href="{{ url_for('add') }}">+ Add Compound</a>
+    <a class="btn btn-secondary" href="{{ url_for('search') }}">
+      <svg class="icon" aria-hidden="true"><use href="#icon-search"/></svg> Structure Search
+    </a>
+    <a class="btn btn-primary" href="{{ url_for('add') }}">
+      <svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg> Add Compound
+    </a>
   </div>
 </div>
 
@@ -15,7 +19,9 @@
          placeholder="Search by name, SMILES, InChI Key, notes…"
          style="flex:1;max-width:480px;"
          autocomplete="off">
-  <button class="btn btn-secondary" onclick="libSearch()">Search</button>
+  <button class="btn btn-secondary" onclick="libSearch()">
+    <svg class="icon" aria-hidden="true"><use href="#icon-search"/></svg> Search
+  </button>
   <button class="btn btn-ghost" onclick="libClear()">Clear</button>
 </div>
 
@@ -46,7 +52,10 @@
       <img src="{{ url_for('structure_svg') }}?smiles={{ c.smiles | urlencode }}&w=240&h=160"
            alt="{{ c.name }}" loading="lazy">
       {% else %}
-      <div class="no-structure"><span>⬡</span>No structure</div>
+      <div class="no-structure">
+        <svg class="icon icon-xl" aria-hidden="true"><use href="#icon-hexagon"/></svg>
+        No structure
+      </div>
       {% endif %}
     </div>
     <div class="card-body">
@@ -72,15 +81,22 @@
 {% else %}
 
 <div class="empty-state">
-  <div class="empty-icon">🧪</div>
+  <div class="empty-icon">
+    <svg class="icon icon-xl" aria-hidden="true"><use href="#icon-tube"/></svg>
+  </div>
   <h3>No compounds yet</h3>
   <p>Start building your compound library by adding your first structure.</p>
-  <a class="btn btn-primary btn-lg" href="{{ url_for('add') }}">Add your first compound</a>
+  <a class="btn btn-primary btn-lg" href="{{ url_for('add') }}">
+    <svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg> Add your first compound
+  </a>
 </div>
 
 {% endif %}
 
 <script>
+const _noStructSvg = `<svg class="icon icon-xl" aria-hidden="true"><use href="#icon-hexagon"/></svg>`;
+const _fileSvg     = `<svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg>`;
+
 const grid   = document.querySelector('.grid');
 const empty  = document.querySelector('.empty-state');
 const stat   = document.getElementById('lib_stat');
@@ -90,7 +106,7 @@ function cardHtml(c) {
   const smiles = c.smiles || '';
   const img = smiles
     ? `<img src="/api/structure.svg?smiles=${encodeURIComponent(smiles)}&w=240&h=160" alt="${c.name}" loading="lazy">`
-    : `<div class="no-structure"><span>⬡</span>No structure</div>`;
+    : `<div class="no-structure">${_noStructSvg}No structure</div>`;
   const smilesRow = smiles
     ? `<p class="smiles-text" title="${smiles}">${smiles.length > 52 ? smiles.substring(0,52) + '…' : smiles}</p>`
     : '';

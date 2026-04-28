@@ -39,9 +39,9 @@
     {% include "editor_snippet.html" %}
 
     <div class="search-actions" style="margin-top:16px">
-      <button class="btn btn-primary btn-lg" onclick="doSearch()"
+      <button class="btn btn-primary btn-lg" id="search_btn" onclick="doSearch()"
               {% if not rdkit %}disabled{% endif %}>
-        🔍 Search
+        <svg class="icon" aria-hidden="true"><use href="#icon-search"/></svg> Search
       </button>
       <button class="btn btn-ghost" onclick="clearResults()">Clear</button>
     </div>
@@ -56,7 +56,9 @@
     </div>
     <div id="results_container"></div>
     <div id="no_results" class="empty-state" style="display:none">
-      <div class="empty-icon">🔬</div>
+      <div class="empty-icon">
+        <svg class="icon icon-xl" aria-hidden="true"><use href="#icon-microscope"/></svg>
+      </div>
       <h3>No matches found</h3>
       <p>Try a different query or lower the similarity threshold.</p>
     </div>
@@ -68,6 +70,12 @@
 const threshold = document.getElementById('threshold');
 const thrVal    = document.getElementById('thr_val');
 const thrRow    = document.getElementById('threshold_row');
+const searchBtn = document.getElementById('search_btn');
+
+const _searchIconHtml = `<svg class="icon" aria-hidden="true"><use href="#icon-search"/></svg> Search`;
+const _noStructSvg    = `<svg class="icon icon-xl" aria-hidden="true"><use href="#icon-hexagon"/></svg>`;
+const _fileSvg        = `<svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg>`;
+const _dotSvg         = `<svg class="icon" aria-hidden="true"><use href="#icon-dot"/></svg>`;
 
 document.querySelectorAll('input[name="mode"]').forEach(r => {
   r.addEventListener('change', () => {
@@ -88,10 +96,9 @@ async function doSearch() {
 
   const mode = document.querySelector('input[name="mode"]:checked').value;
   const thr  = parseFloat(threshold.value);
-  const btn  = document.querySelector('.search-actions .btn-primary');
 
-  btn.textContent = '⏳ Searching…';
-  btn.disabled = true;
+  searchBtn.innerHTML = 'Searching…';
+  searchBtn.disabled = true;
 
   try {
     const resp = await fetch('/api/search', {
@@ -105,8 +112,8 @@ async function doSearch() {
   } catch(e) {
     alert('Search failed: ' + e);
   } finally {
-    btn.textContent = '🔍 Search';
-    btn.disabled = false;
+    searchBtn.innerHTML = _searchIconHtml;
+    searchBtn.disabled = false;
   }
 }
 
@@ -132,20 +139,20 @@ function renderResults(results, mode) {
       <div class="result-img">
         ${r.smiles
           ? `<img src="/api/structure.svg?smiles=${encodeURIComponent(r.smiles)}&w=180&h=130" alt="${r.name}">`
-          : '<div class="no-structure"><span>⬡</span></div>'}
+          : `<div class="no-structure">${_noStructSvg}</div>`}
       </div>
       <div class="result-body">
         <h3><a href="/compound/${r.id}">${r.name}</a></h3>
         ${r.author ? `<p style="font-size:12px;color:var(--muted);margin-bottom:4px">by ${r.author}</p>` : ''}
         ${mode === 'similarity' && r.similarity !== undefined
-          ? `<span class="similarity">● ${(r.similarity * 100).toFixed(1)}% similar</span>` : ''}
+          ? `<span class="similarity">${_dotSvg} ${(r.similarity * 100).toFixed(1)}% similar</span>` : ''}
         ${r.smiles
           ? `<p class="result-smiles">${r.smiles.substring(0, 70)}${r.smiles.length > 70 ? '…' : ''}</p>`
           : ''}
         <div class="result-actions">
           <a href="/compound/${r.id}" class="btn btn-sm btn-secondary">View</a>
           ${r.pdf_filename
-            ? `<a href="/pdf/${encodeURIComponent(r.pdf_filename)}" target="_blank" class="btn btn-sm btn-ghost">📄 PDF</a>`
+            ? `<a href="/pdf/${encodeURIComponent(r.pdf_filename)}" target="_blank" class="btn btn-sm btn-ghost">${_fileSvg} PDF</a>`
             : ''}
         </div>
       </div>
