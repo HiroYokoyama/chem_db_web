@@ -22,8 +22,8 @@ import urllib.parse
 import urllib.error
 import webbrowser
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QPixmap, QFont
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
+from PyQt6.QtGui import QPixmap, QFont, QIcon, QPainter
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QLabel, QHeaderView,
@@ -66,6 +66,44 @@ def _save_settings(data: dict):
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
+
+
+# ── SVG Icons ────────────────────────────────────────────────────────────────
+
+_SVG_HEXAGON = """<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <path d="M12 2L4.5 6.34v8.66L12 19.34l7.5-4.34V6.34L12 2z" fill="none" stroke="#555" stroke-width="2"/>
+</svg>"""
+
+_SVG_GLOBE = """<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="#0366d6"/>
+</svg>"""
+
+_SVG_DOWNLOAD = """<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="#28a745"/>
+</svg>"""
+
+_SVG_PLUS = """<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="#6f42c1"/>
+</svg>"""
+
+_SVG_CHECKMARK = """<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="#28a745"/>
+</svg>"""
+
+
+def _get_svg_icon(svg_text: str, size: int = 16) -> QIcon:
+    """Render an SVG string to a QIcon."""
+    try:
+        from PyQt6.QtSvg import QSvgRenderer
+        renderer = QSvgRenderer(svg_text.encode())
+        px = QPixmap(size, size)
+        px.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(px)
+        renderer.render(painter)
+        painter.end()
+        return QIcon(px)
+    except Exception:
+        return QIcon()
 
 
 # ── Worker threads ────────────────────────────────────────────────────────────
@@ -471,7 +509,8 @@ class MolibraryBrowserDialog(QDialog):
         self._btn_all.clicked.connect(self._show_all)
         top.addWidget(self._btn_all)
 
-        self._btn_cur = QPushButton("⬡  Current Molecule")
+        self._btn_cur = QPushButton(" Current Molecule")
+        self._btn_cur.setIcon(_get_svg_icon(_SVG_HEXAGON, 18))
         self._btn_cur.setToolTip(
             "Search using the molecule currently open in MoleditPy"
         )
@@ -599,7 +638,8 @@ class MolibraryBrowserDialog(QDialog):
         # ── action buttons ────────────────────────────────────────────────────
         actions = QHBoxLayout()
 
-        self._btn_open = QPushButton("🌐  Open in Browser")
+        self._btn_open = QPushButton(" Open in Browser")
+        self._btn_open.setIcon(_get_svg_icon(_SVG_GLOBE, 18))
         self._btn_open.setEnabled(False)
         self._btn_open.setToolTip(
             "Open the Molibrary page for this compound\n"
@@ -608,13 +648,15 @@ class MolibraryBrowserDialog(QDialog):
         self._btn_open.clicked.connect(self._open_in_browser)
         actions.addWidget(self._btn_open)
 
-        self._btn_load = QPushButton("⬇  Load into MoleditPy")
+        self._btn_load = QPushButton(" Load into MoleditPy")
+        self._btn_load.setIcon(_get_svg_icon(_SVG_DOWNLOAD, 18))
         self._btn_load.setEnabled(False)
         self._btn_load.setToolTip("Import this compound's structure into the 2D editor")
         self._btn_load.clicked.connect(self._load_selected)
         actions.addWidget(self._btn_load)
 
-        self._btn_add = QPushButton("➕  Add New Entry")
+        self._btn_add = QPushButton(" Add New Entry")
+        self._btn_add.setIcon(_get_svg_icon(_SVG_PLUS, 18))
         self._btn_add.setToolTip(
             "Add a new compound to Molibrary\n"
             "(pre-filled with the current molecule if one is open)"
@@ -770,8 +812,10 @@ class MolibraryBrowserDialog(QDialog):
             self._table.setItem(row, 1, QTableWidgetItem(r.get('author', '') or ''))
             self._table.setItem(row, 2, QTableWidgetItem(r.get('smiles', '') or ''))
             self._table.setItem(row, 3, QTableWidgetItem(r.get('inchi_key', '') or ''))
-            self._table.setItem(row, 4,
-                QTableWidgetItem('✔' if r.get('pdf_filename') else ''))
+            pdf_item = QTableWidgetItem()
+            if r.get('pdf_filename'):
+                pdf_item.setIcon(_get_svg_icon(_SVG_CHECKMARK, 16))
+            self._table.setItem(row, 4, pdf_item)
 
         count = len(results)
         if count:

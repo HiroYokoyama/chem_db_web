@@ -1,5 +1,7 @@
 # Molibrary — Local Chemical Structure & Protocol Database
 
+[**GitHub Repository**](https://github.com/HiroYokoyama/chem_db_web)
+
 A self-hosted, offline-capable web application for depositing, searching,
 and viewing organic chemical structures with linked synthetic protocol PDFs.
 Integrates with **MoleditPy** via the bundled plugin.
@@ -11,14 +13,18 @@ Integrates with **MoleditPy** via the bundled plugin.
 ## Quick Start (Windows)
 
 ```
-1. setup.bat      ← installs Python dependencies + downloads offline editor (run once)
-2. start.bat      ← starts the server
-3. Open browser   http://127.0.0.1:5000
+1. git clone https://github.com/HiroYokoyama/chem_db_web.git
+2. cd chem_db_web
+3. setup.bat      ← installs Python dependencies + downloads offline editor (run once)
+4. start.bat      ← starts the server
+5. Open browser   http://127.0.0.1:5000
 ```
 
 ## Quick Start (Linux / macOS)
 
 ```bash
+git clone https://github.com/HiroYokoyama/chem_db_web.git
+cd chem_db_web
 chmod +x setup.sh start.sh
 ./setup.sh        # installs dependencies + downloads offline editor (run once)
 ./start.sh        # starts the server
