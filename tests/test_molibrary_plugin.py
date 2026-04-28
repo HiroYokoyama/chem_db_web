@@ -215,3 +215,22 @@ def test_threshold_spinbox_width(qtbot, mock_context):
     qtbot.add_widget(dialog)
     assert dialog._spin_thr.minimumWidth() >= 80 or dialog._spin_thr.width() >= 80 or \
            dialog._spin_thr.maximumWidth() >= 90
+
+
+@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+def test_exact_mode_toggled_converts_smiles_to_inchi_key(qtbot, mock_context):
+    """Selecting 'exact' mode must convert the text in the query box from SMILES to InChI Key."""
+    dialog = MolibraryBrowserDialog(mock_context)
+    qtbot.add_widget(dialog)
+
+    dialog._le_query.setText("CCO")
+
+    # Toggle to exact mode
+    for btn in dialog._mode_group.buttons():
+        if btn.property("mode_value") == "exact":
+            btn.setChecked(True)
+            break
+
+    # Verify the query box now contains the InChI Key for CCO
+    # Ethanol InChI Key: LFQSCWFLJHTTHZ-UHFFFAOYSA-N
+    assert dialog._le_query.text() == "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"

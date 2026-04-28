@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import sqlite3
 import uuid
 import urllib.parse
@@ -442,20 +443,24 @@ def api_search():
     if not query_smi:
         return jsonify({'results': []})
 
-    query_mol = Chem.MolFromSmiles(query_smi)
-    if query_mol is None:
-        return jsonify({'error': 'Invalid query SMILES'}), 400
-
-    # Exact match via InChI Key — no need to iterate all rows
+    # Exact match via InChI Key — handle both SMILES and direct InChI Key input
     if mode == 'exact':
-        query_inchi_key = mol_to_inchi_key(query_smi)
+        if re.match(r'^[A-Z]{14}-[A-Z]{10}-[A-Z]$', query_smi):
+            query_inchi_key = query_smi
+        else:
+            query_inchi_key = mol_to_inchi_key(query_smi)
+
         if not query_inchi_key:
-            return jsonify({'error': 'Could not generate InChI Key from query SMILES'}), 400
+            return jsonify({'error': 'Could not generate or validate InChI Key from query'}), 400
         with get_db() as conn:
             rows = conn.execute(
                 'SELECT * FROM compounds WHERE inchi_key = ?', (query_inchi_key,)
             ).fetchall()
         return jsonify({'results': [dict(r) for r in rows]})
+
+    query_mol = Chem.MolFromSmiles(query_smi)
+    if query_mol is None:
+        return jsonify({'error': 'Invalid query SMILES'}), 400
 
     with get_db() as conn:
         rows = conn.execute(

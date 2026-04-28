@@ -14,35 +14,39 @@
   </div>
 </div>
 
-<div class="search-bar-row" style="margin-bottom:18px;display:flex;gap:8px;">
-  <input id="lib_search" type="search" class="form-control"
-         placeholder="Search by name, SMILES, InChI Key, notes…"
-         style="flex:1;max-width:480px;"
-         autocomplete="off">
-  <button class="btn btn-secondary" onclick="libSearch()">
-    <svg class="icon" aria-hidden="true"><use href="#icon-search"/></svg> Search
-  </button>
+<div class="search-bar-row" style="margin-top:8px; margin-bottom:28px; display:flex; gap:10px; justify-content:center;">
+  <div style="flex:1; max-width:520px; display:flex; gap:8px;">
+    <input id="lib_search" type="search" class="form-control"
+           placeholder="Search by name, SMILES, InChI Key, notes…"
+           autocomplete="off">
+    <button class="btn btn-secondary" onclick="libSearch()">
+      <svg class="icon" aria-hidden="true"><use href="#icon-search"/></svg> Search
+    </button>
+  </div>
   <button class="btn btn-ghost" onclick="libClear()">Clear</button>
 </div>
 
-<div id="lib_stat" style="display:none;margin-bottom:8px;font-size:13px;color:var(--muted)"></div>
+<div id="lib_stat" style="visibility:hidden; height:24px; margin-bottom:24px; font-size:13.5px; color:var(--muted); text-align:center; font-weight:500;"></div>
 
 {% if compounds %}
-
-<div class="stat-strip">
+<div class="stat-strip" style="justify-content:center; margin-bottom:40px;">
   <div class="stat-chip">
-    <span class="stat-num">{{ compounds | length }}</span>
+    <span class="stat-num" id="stat_total">{{ compounds | length }}</span>
     <span class="stat-label">compounds</span>
   </div>
   <div class="stat-chip">
-    <span class="stat-num">{{ compounds | selectattr('pdf_filename') | list | length }}</span>
+    <span class="stat-num" id="stat_pdf">{{ compounds | selectattr('pdf_filename') | list | length }}</span>
     <span class="stat-label">with PDF</span>
   </div>
   <div class="stat-chip">
-    <span class="stat-num">{{ compounds | selectattr('smiles') | list | length }}</span>
+    <span class="stat-num" id="stat_struct">{{ compounds | selectattr('smiles') | list | length }}</span>
     <span class="stat-label">with structure</span>
   </div>
 </div>
+{% endif %}
+
+<div id="results_wrapper" style="min-height:320px;">
+{% if compounds %}
 
 <div class="grid">
   {% for c in compounds %}
@@ -90,15 +94,12 @@
     <svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg> Add your first compound
   </a>
 </div>
-
 {% endif %}
+</div><!-- /#results_wrapper -->
 
 <script>
 const _noStructSvg = `<svg class="icon icon-xl" aria-hidden="true"><use href="#icon-hexagon"/></svg>`;
-const _fileSvg     = `<svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg>`;
 
-const grid   = document.querySelector('.grid');
-const empty  = document.querySelector('.empty-state');
 const stat   = document.getElementById('lib_stat');
 const input  = document.getElementById('lib_search');
 
@@ -128,18 +129,23 @@ async function libSearch() {
     const resp = await fetch(`/api/compounds?q=${encodeURIComponent(q)}`);
     const data = await resp.json();
     const results = data.results || [];
-    if (grid) {
-      grid.innerHTML = results.map(cardHtml).join('');
-    } else if (results.length) {
-      // empty-state page: inject a grid
-      const g = document.createElement('div');
-      g.className = 'grid';
-      g.id = '_dyn_grid';
-      g.innerHTML = results.map(cardHtml).join('');
-      if (empty) empty.style.display = 'none';
-      document.querySelector('.container').appendChild(g);
+    
+    const wrapper = document.getElementById('results_wrapper');
+    if (wrapper) {
+      if (results.length > 0) {
+        wrapper.innerHTML = `<div class="grid">${results.map(cardHtml).join('')}</div>`;
+      } else {
+        wrapper.innerHTML = `<div class="empty-state">
+          <div class="empty-icon">
+            <svg class="icon icon-xl" aria-hidden="true"><use href="#icon-microscope"/></svg>
+          </div>
+          <h3>No matches found</h3>
+          <p>Try a different query or keywords.</p>
+        </div>`;
+      }
     }
-    stat.style.display = '';
+    
+    stat.style.visibility = 'visible';
     if (q) {
       stat.textContent = results.length
         ? `${results.length} result(s) for "${q}"`
@@ -148,15 +154,17 @@ async function libSearch() {
       stat.textContent = `${results.length} compound(s)`;
     }
   } catch(e) {
-    stat.style.display = '';
+    stat.style.visibility = 'visible';
     stat.textContent = 'Search failed: ' + e;
   }
 }
 
+const initialResults = document.getElementById('results_wrapper').innerHTML;
+
 function libClear() {
   input.value = '';
-  stat.style.display = 'none';
-  location.reload();
+  stat.style.visibility = 'hidden';
+  document.getElementById('results_wrapper').innerHTML = initialResults;
 }
 
 input.addEventListener('keydown', e => { if (e.key === 'Enter') libSearch(); });

@@ -450,6 +450,17 @@ class TestExactSearchApi:
         data = json.loads(resp.data)
         assert data["results"] == []
 
+    def test_exact_match_by_inchi_key_directly(self, client):
+        """Exact mode must accept a direct InChI Key string as query."""
+        _add_compound(client, name="Ethanol", smiles="CCO")
+        key = mol_to_inchi_key("CCO")
+        # Send the InChI Key as the 'smiles' field in 'exact' mode
+        resp = client.post("/api/search", json={"smiles": key, "mode": "exact"})
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "Ethanol"
+
     def test_exact_match_compound_without_inchi_key_not_returned(self, client, tmp_db):
         """A compound whose inchi_key is NULL must not appear in exact results."""
         import sqlite3

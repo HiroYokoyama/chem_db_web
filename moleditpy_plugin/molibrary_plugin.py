@@ -350,6 +350,33 @@ def _try_local_svg(smiles: str, width: int = 300, height: int = 210) -> str:
         return ''
 
 
+def _smiles_to_inchi_key(smiles: str) -> str:
+    """Convert a SMILES string to an InChI Key using local RDKit."""
+    try:
+        from rdkit import Chem
+        from rdkit.Chem.inchi import MolToInchi, InchiToInchiKey
+        mol = Chem.MolFromSmiles(smiles)
+        if mol:
+            inchi = MolToInchi(mol)
+            if inchi:
+                return InchiToInchiKey(inchi)
+    except Exception:
+        pass
+    return ""
+
+
+def _looks_like_inchi_key(s: str) -> bool:
+    """Heuristic check: three hyphen-separated segments of length 14-10-1, all uppercase."""
+    parts = s.split('-')
+    return (
+        len(parts) == 3
+        and len(parts[0]) == 14
+        and len(parts[1]) == 10
+        and len(parts[2]) == 1
+        and all(p.isupper() for p in parts)
+    )
+
+
 # ── Add entry dialog ─────────────────────────────────────────────────────────
 
 class _AddEntryDialog(QDialog):
@@ -689,7 +716,20 @@ class MolibraryBrowserDialog(QDialog):
         return "text"
 
     def _on_mode_changed(self):
-        self._spin_thr.setEnabled(self._current_mode() == "similarity")
+        mode = self._current_mode()
+        self._spin_thr.setEnabled(mode == "similarity")
+
+        q = self._le_query.text().strip()
+        if mode == "exact":
+            # Auto-convert SMILES → InChI Key when switching to Exact mode
+            if q and '-' not in q:
+                key = _smiles_to_inchi_key(q)
+                if key:
+                    self._le_query.setText(key)
+        else:
+            # Auto-clear InChI Key when switching away from Exact mode
+            if _looks_like_inchi_key(q):
+                self._le_query.clear()
 
     # ── Keyboard on table ─────────────────────────────────────────────────────
 
@@ -761,7 +801,15 @@ class MolibraryBrowserDialog(QDialog):
                     break
             mode = "exact"
 
-        self._run_structure_search(smiles, mode)
+        # If we are in exact mode, ensure we use the InChI Key for the search
+        query = smiles
+        if mode == "exact":
+            key = _smiles_to_inchi_key(smiles)
+            if key:
+                query = key
+                self._le_query.setText(key)
+
+        self._run_structure_search(query, mode)
 
     # ── Internal search launchers ─────────────────────────────────────────────
 
