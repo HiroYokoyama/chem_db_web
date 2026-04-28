@@ -11,4 +11,4 @@ source venv/bin/activate
 echo "Molibrary is starting..."
 echo "Use --localhost to restrict access to this PC only."
 echo
-python app.py "$@"
+python molibrary/app.py "$@"

@@ -9,8 +9,9 @@ import urllib.request
 import urllib.error
 
 JSME_BASE = "https://jsme-editor.github.io/dist/jsme/"
-OUT_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "static", "jsme")
+# Project root is two levels above this script (scripts/ -> chem_db_web/)
+_ROOT  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT_DIR = os.path.join(_ROOT, "static", "jsme")
 
 def _fetch(url: str, dest: str, silent_fail=False) -> bool:
     os.makedirs(os.path.dirname(dest), exist_ok=True)

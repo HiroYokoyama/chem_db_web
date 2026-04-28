@@ -66,6 +66,40 @@ def test_structure_search_worker_init():
     assert worker._threshold == 0.7
 
 
+def test_resolve_2d_overlaps_separates_forced_overlap():
+    """_resolve_2d_overlaps must increase distance between two atoms placed on top of each other."""
+    from math import sqrt
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from molibrary_plugin import _resolve_2d_overlaps
+    mol = Chem.MolFromSmiles('c1ccc(-c2ccccc2)cc1')
+    AllChem.Compute2DCoords(mol)
+    conf = mol.GetConformer()
+    p0 = conf.GetAtomPosition(0)
+    conf.SetAtomPosition(6, (p0.x, p0.y, 0.0))
+    dist_before = sqrt((conf.GetAtomPosition(0).x - conf.GetAtomPosition(6).x) ** 2 +
+                       (conf.GetAtomPosition(0).y - conf.GetAtomPosition(6).y) ** 2)
+    _resolve_2d_overlaps(mol)
+    dist_after = sqrt((conf.GetAtomPosition(0).x - conf.GetAtomPosition(6).x) ** 2 +
+                      (conf.GetAtomPosition(0).y - conf.GetAtomPosition(6).y) ** 2)
+    assert dist_after > dist_before
+
+
+def test_resolve_2d_overlaps_no_change_when_clean():
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from molibrary_plugin import _resolve_2d_overlaps
+    mol = Chem.MolFromSmiles('CCO')
+    AllChem.Compute2DCoords(mol)
+    conf = mol.GetConformer()
+    before = [(conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y)
+              for i in range(mol.GetNumAtoms())]
+    _resolve_2d_overlaps(mol)
+    after = [(conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y)
+             for i in range(mol.GetNumAtoms())]
+    assert before == after
+
+
 def test_try_local_svg_valid_smiles():
     """_try_local_svg returns an SVG string for a valid SMILES."""
     from molibrary_plugin import _try_local_svg

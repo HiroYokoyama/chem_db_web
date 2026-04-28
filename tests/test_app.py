@@ -14,11 +14,11 @@ import sys
 import tempfile
 import pytest
 
-# Make sure app.py is importable regardless of cwd
+# Make sure the project root is on the path so molibrary package is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import app as _app_module
-from app import app, init_db, mol_to_inchi_key, mol_to_svg, save_pdf
+import molibrary.app as _app_module
+from molibrary.app import app, init_db, mol_to_inchi_key, mol_to_svg, save_pdf
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -467,10 +467,92 @@ class TestExactSearchApi:
         assert "NullKey" not in names
 
 
+class TestOverlapResolution:
+    """Tests for _resolve_2d_overlaps applied via mol_to_svg."""
+
+    def _make_overlapping_mol(self):
+        """Return an RDKit mol with 2D coords where two non-bonded atoms overlap."""
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        # Biphenyl — RDKit occasionally places rings close on simple calls
+        mol = Chem.MolFromSmiles('c1ccc(-c2ccccc2)cc1')
+        AllChem.Compute2DCoords(mol)
+        # Force atoms 0 and 6 (one atom from each ring) to the same position
+        conf = mol.GetConformer()
+        p0 = conf.GetAtomPosition(0)
+        conf.SetAtomPosition(6, (p0.x, p0.y, 0.0))
+        return mol
+
+    def test_resolve_moves_overlapping_atoms_apart(self):
+        from math import sqrt
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        from molibrary.app import _resolve_2d_overlaps
+        mol = self._make_overlapping_mol()
+        conf = mol.GetConformer()
+        # Confirm overlap before
+        p0 = conf.GetAtomPosition(0)
+        p6 = conf.GetAtomPosition(6)
+        dist_before = sqrt((p0.x - p6.x) ** 2 + (p0.y - p6.y) ** 2)
+        assert dist_before < 0.01
+
+        _resolve_2d_overlaps(mol)
+
+        p0 = conf.GetAtomPosition(0)
+        p6 = conf.GetAtomPosition(6)
+        dist_after = sqrt((p0.x - p6.x) ** 2 + (p0.y - p6.y) ** 2)
+        assert dist_after > dist_before
+
+    def test_resolve_no_change_when_no_overlap(self):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        from molibrary.app import _resolve_2d_overlaps
+        mol = Chem.MolFromSmiles('CCO')
+        AllChem.Compute2DCoords(mol)
+        conf = mol.GetConformer()
+        before = [(conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y)
+                  for i in range(mol.GetNumAtoms())]
+        _resolve_2d_overlaps(mol)
+        after = [(conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y)
+                 for i in range(mol.GetNumAtoms())]
+        assert before == after
+
+    def test_resolve_single_atom_no_crash(self):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        from molibrary.app import _resolve_2d_overlaps
+        mol = Chem.MolFromSmiles('[He]')
+        AllChem.Compute2DCoords(mol)
+        _resolve_2d_overlaps(mol)   # must not raise
+
+    def test_mol_to_svg_produces_valid_svg_after_overlap_fix(self, client):
+        from molibrary.app import mol_to_svg
+        mol_to_svg.cache_clear()
+        # Biphenyl — two-ring system; tests that overlap prevention doesn't break valid output
+        svg = mol_to_svg('c1ccc(-c2ccccc2)cc1', 400, 400)
+        assert svg is not None
+        assert '<svg' in svg
+
+    def test_bonded_atoms_not_considered_overlapping(self):
+        """Bonded atoms are always close — the algorithm must not try to separate them."""
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        from molibrary.app import _resolve_2d_overlaps
+        mol = Chem.MolFromSmiles('CC')
+        AllChem.Compute2DCoords(mol)
+        conf = mol.GetConformer()
+        before = [(conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y)
+                  for i in range(mol.GetNumAtoms())]
+        _resolve_2d_overlaps(mol)
+        after = [(conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y)
+                 for i in range(mol.GetNumAtoms())]
+        assert before == after
+
+
 class TestSvgCache:
     def test_same_smiles_returns_cached_result(self, client):
         """Two calls to mol_to_svg with the same args must return the same object."""
-        from app import mol_to_svg
+        from molibrary.app import mol_to_svg
         mol_to_svg.cache_clear()
         r1 = mol_to_svg("CCO", 300, 200)
         r2 = mol_to_svg("CCO", 300, 200)
@@ -478,7 +560,7 @@ class TestSvgCache:
         assert mol_to_svg.cache_info().hits >= 1
 
     def test_different_smiles_are_cached_separately(self, client):
-        from app import mol_to_svg
+        from molibrary.app import mol_to_svg
         mol_to_svg.cache_clear()
         svg1 = mol_to_svg("CCO", 300, 200)
         svg2 = mol_to_svg("c1ccccc1", 300, 200)
@@ -486,7 +568,7 @@ class TestSvgCache:
         assert mol_to_svg.cache_info().currsize == 2
 
     def test_different_dimensions_cached_separately(self, client):
-        from app import mol_to_svg
+        from molibrary.app import mol_to_svg
         mol_to_svg.cache_clear()
         mol_to_svg("CCO", 100, 80)
         mol_to_svg("CCO", 400, 300)

@@ -37,7 +37,7 @@ if errorlevel 1 (
 
 echo.
 echo Downloading offline assets (JSME editor)...
-venv\Scripts\python.exe download_assets.py
+venv\Scripts\python.exe scripts\download_assets.py
 if errorlevel 1 (
     echo WARNING: Asset download had errors. Molibrary will use CDN as fallback.
 )

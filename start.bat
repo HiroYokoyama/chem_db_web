@@ -13,5 +13,5 @@ echo.
 echo Molibrary is starting...
 echo Use --localhost flag to restrict access to this PC only.
 echo.
-python app.py %*
+python molibrary/app.py %*
 pause

@@ -178,13 +178,13 @@ For a stable, always-on deployment use a proper WSGI server.
 
 ```bat
 pip install waitress
-waitress-serve --host=0.0.0.0 --port=5000 app:app
+waitress-serve --host=0.0.0.0 --port=5000 molibrary.app:app
 ```
 
 To run as a background service, wrap with [NSSM](https://nssm.cc):
 
 ```bat
-nssm install Molibrary "C:\path\to\venv\Scripts\waitress-serve.exe" --host=0.0.0.0 --port=5000 app:app
+nssm install Molibrary "C:\path\to\venv\Scripts\waitress-serve.exe" --host=0.0.0.0 --port=5000 molibrary.app:app
 nssm set Molibrary AppDirectory C:\path\to\chem_db_web
 nssm start Molibrary
 ```
@@ -202,7 +202,7 @@ After=network.target
 [Service]
 User=youruser
 WorkingDirectory=/opt/molibrary/chem_db_web
-ExecStart=/opt/molibrary/venv/bin/gunicorn -w 2 -b 0.0.0.0:5000 app:app
+ExecStart=/opt/molibrary/venv/bin/gunicorn -w 2 -b 0.0.0.0:5000 molibrary.app:app
 Restart=on-failure
 
 [Install]

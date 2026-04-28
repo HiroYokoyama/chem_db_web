@@ -159,6 +159,135 @@ class _SvgFetcher(QThread):
             self.svg_ready.emit(self._smiles, '')
 
 
+def _resolve_2d_overlaps(mol, max_iter: int = 10) -> None:
+    """Post-process an RDKit 2-D conformer to separate overlapping non-bonded atoms.
+
+    Adapts the Union-Find + BFS + centroid-push algorithm used in MoleditPy's
+    mol_geometry module.  Threshold and move distance are scaled to the
+    molecule's average bond length so the result is unit-independent.
+    """
+    from math import sqrt
+    from collections import deque
+
+    conf = mol.GetConformer()
+    n = mol.GetNumAtoms()
+    if n < 2:
+        return
+
+    bonded: set = set()
+    adj: dict = {i: [] for i in range(n)}
+    bond_lengths = []
+    for bond in mol.GetBonds():
+        i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+        bonded.add((min(i, j), max(i, j)))
+        adj[i].append(j)
+        adj[j].append(i)
+        pi, pj = conf.GetAtomPosition(i), conf.GetAtomPosition(j)
+        bl = sqrt((pi.x - pj.x) ** 2 + (pi.y - pj.y) ** 2)
+        if bl > 0:
+            bond_lengths.append(bl)
+
+    avg_bond  = (sum(bond_lengths) / len(bond_lengths)) if bond_lengths else 1.0
+    threshold = avg_bond * 0.35
+    move_dist = avg_bond * 1.2
+
+    for _ in range(max_iter):
+        pos = {}
+        for i in range(n):
+            p = conf.GetAtomPosition(i)
+            pos[i] = (p.x, p.y)
+
+        pairs = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                if (min(i, j), max(i, j)) in bonded:
+                    continue
+                dx = pos[i][0] - pos[j][0]
+                dy = pos[i][1] - pos[j][1]
+                if sqrt(dx * dx + dy * dy) < threshold:
+                    pairs.append((i, j))
+
+        if not pairs:
+            break
+
+        parent = list(range(n))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i, j in pairs:
+            ri, rj = find(i), find(j)
+            if ri != rj:
+                parent[rj] = ri
+
+        groups: dict = {}
+        for i in range(n):
+            groups.setdefault(find(i), []).append(i)
+
+        moved_this_iter = False
+        for root, members in groups.items():
+            if len(members) < 2:
+                continue
+            rep = next(((a, b) for a, b in pairs if find(a) == root), None)
+            if rep is None:
+                continue
+
+            group_set = set(members)
+            visited: set = set()
+            fragments = []
+            for seed in members:
+                if seed in visited:
+                    continue
+                frag: set = set()
+                q = deque([seed])
+                visited.add(seed)
+                frag.add(seed)
+                while q:
+                    cur = q.popleft()
+                    for nb in adj[cur]:
+                        if nb in group_set and nb not in visited:
+                            visited.add(nb)
+                            frag.add(nb)
+                            q.append(nb)
+                fragments.append(frag)
+
+            if len(fragments) < 2:
+                continue
+
+            a0, b0 = rep
+            fa = next((f for f in fragments if a0 in f), None)
+            fb = next((f for f in fragments if b0 in f), None)
+            if fa is None or fb is None or fa is fb:
+                continue
+
+            to_move = fa if len(fa) <= len(fb) else fb
+            other   = fb if to_move is fa else fa
+
+            cx_m = sum(pos[k][0] for k in to_move) / len(to_move)
+            cy_m = sum(pos[k][1] for k in to_move) / len(to_move)
+            cx_o = sum(pos[k][0] for k in other)   / len(other)
+            cy_o = sum(pos[k][1] for k in other)   / len(other)
+
+            dx, dy = cx_m - cx_o, cy_m - cy_o
+            d = sqrt(dx * dx + dy * dy)
+            if d < 1e-9:
+                dx, dy = move_dist, 0.0
+            else:
+                dx, dy = dx / d * move_dist, dy / d * move_dist
+
+            for k in to_move:
+                p = conf.GetAtomPosition(k)
+                conf.SetAtomPosition(k, (p.x + dx, p.y + dy, p.z))
+
+            moved_this_iter = True
+
+        if not moved_this_iter:
+            break
+
+
 def _try_local_svg(smiles: str, width: int = 300, height: int = 210) -> str:
     """Generate an SVG string using a local RDKit installation.
 
@@ -167,10 +296,13 @@ def _try_local_svg(smiles: str, width: int = 300, height: int = 210) -> str:
     """
     try:
         from rdkit import Chem
+        from rdkit.Chem import AllChem
         from rdkit.Chem.Draw import rdMolDraw2D
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             return ''
+        AllChem.Compute2DCoords(mol)
+        _resolve_2d_overlaps(mol)
         drawer = rdMolDraw2D.MolDraw2DSVG(width, height)
         drawer.drawOptions().addStereoAnnotation = True
         drawer.DrawMolecule(mol)

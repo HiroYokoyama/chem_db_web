@@ -38,7 +38,7 @@ fi
 # Download offline assets
 echo
 echo "Downloading offline assets (JSME editor)..."
-if ! "$VENV_PY" download_assets.py; then
+if ! "$VENV_PY" scripts/download_assets.py; then
     echo "WARNING: Asset download had errors. Molibrary will use CDN as fallback."
 fi
 
