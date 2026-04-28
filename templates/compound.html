@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ c.name }} – ChemDBWeb{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ c.name }}</h1>
+  <div class="header-actions">
+    <a href="{{ url_for('edit_compound', cid=c.id) }}" class="btn btn-secondary">✏️ Edit</a>
+    <form method="POST" action="{{ url_for('delete_compound', cid=c.id) }}"
+          onsubmit="return confirm('Delete this compound?');" style="display:inline">
+      <button type="submit" class="btn btn-danger">🗑 Delete</button>
+    </form>
+    <a href="{{ url_for('index') }}" class="btn btn-ghost">← Library</a>
+  </div>
+</div>
+
+<div class="detail-grid">
+  <div class="detail-structure">
+    <div class="structure-box">
+      {% if svg %}
+        {{ svg | safe }}
+      {% else %}
+        <div class="no-structure">No structure</div>
+      {% endif %}
+    </div>
+    {% if c.smiles %}
+    <div class="smiles-block">
+      <span class="label">SMILES</span>
+      <code id="smi_code">{{ c.smiles }}</code>
+      <button class="copy-btn" onclick="navigator.clipboard.writeText('{{ c.smiles }}').then(()=>this.textContent='✓')">Copy</button>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="detail-info">
+    <div class="info-section">
+      <h3>Added</h3>
+      <p>{{ c.created_at }}</p>
+    </div>
+
+    {% if c.notes %}
+    <div class="info-section">
+      <h3>Notes / Protocol Summary</h3>
+      <p class="notes-text">{{ c.notes }}</p>
+    </div>
+    {% endif %}
+
+    {% if c.pdf_filename %}
+    <div class="info-section">
+      <h3>Synthetic Protocol</h3>
+      <a class="btn btn-primary" href="{{ url_for('serve_pdf', filename=c.pdf_filename) }}"
+         target="_blank">📄 Open PDF</a>
+      <p class="file-name-hint">{{ c.pdf_filename }}</p>
+    </div>
+    {% else %}
+    <div class="info-section">
+      <h3>Synthetic Protocol</h3>
+      <p class="muted">No PDF attached. <a href="{{ url_for('edit_compound', cid=c.id) }}">Upload one?</a></p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

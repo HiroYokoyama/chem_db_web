@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Library – ChemDBWeb{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Compound Library</h1>
+  <a class="btn btn-primary" href="{{ url_for('add') }}">+ Add Compound</a>
+</div>
+
+{% if compounds %}
+<div class="grid">
+  {% for c in compounds %}
+  <div class="card">
+    <div class="card-img">
+      {% if c.smiles %}
+      <img src="{{ url_for('structure_svg') }}?smiles={{ c.smiles | urlencode }}&w=240&h=160"
+           alt="{{ c.name }}" loading="lazy">
+      {% else %}
+      <div class="no-structure">No structure</div>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      <h3 class="card-title">
+        <a href="{{ url_for('view_compound', cid=c.id) }}">{{ c.name }}</a>
+      </h3>
+      {% if c.smiles %}
+      <p class="smiles-text" title="{{ c.smiles }}">{{ c.smiles[:60] }}{% if c.smiles|length > 60 %}…{% endif %}</p>
+      {% endif %}
+      <div class="card-meta">
+        {% if c.pdf_filename %}
+        <span class="badge badge-pdf">PDF</span>
+        {% endif %}
+        <span class="date">{{ c.created_at[:10] }}</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <p>No compounds yet.</p>
+  <a class="btn btn-primary" href="{{ url_for('add') }}">Add your first compound</a>
+</div>
+{% endif %}
+{% endblock %}
