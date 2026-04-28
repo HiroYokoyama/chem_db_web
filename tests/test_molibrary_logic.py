@@ -8,7 +8,14 @@ from unittest.mock import MagicMock, patch, mock_open
 plugin_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "moleditpy_plugin")
 sys.path.append(plugin_dir)
 
-import molibrary_plugin
+try:
+    import molibrary_plugin
+    HAS_PYQT = True
+except ImportError:
+    HAS_PYQT = False
+
+if not HAS_PYQT:
+    pytest.skip("PyQt6 not installed", allow_module_level=True)
 
 def test_settings_path():
     """Verify the settings JSON path construction."""
