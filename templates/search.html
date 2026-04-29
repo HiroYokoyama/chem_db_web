@@ -77,6 +77,15 @@ const _noStructSvg    = `<svg class="icon icon-xl" aria-hidden="true"><use href=
 const _fileSvg        = `<svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg>`;
 const _dotSvg         = `<svg class="icon" aria-hidden="true"><use href="#icon-dot"/></svg>`;
 
+function _tagBadges(r) {
+  const raw = r.tags || '';
+  const tags = raw.split(',').filter(t => t.trim());
+  if (!tags.length) return '';
+  return `<div class="tag-row" style="margin-bottom:6px">${
+    tags.map(t => `<a class="tag-pill" href="/?tag=${encodeURIComponent(t)}">#${t}</a>`).join('')
+  }</div>`;
+}
+
 document.querySelectorAll('input[name="mode"]').forEach(r => {
   r.addEventListener('change', () => {
     thrRow.style.display = r.value === 'similarity' ? 'block' : 'none';
@@ -149,10 +158,11 @@ function renderResults(results, mode) {
         ${r.smiles
           ? `<p class="result-smiles">${r.smiles.substring(0, 70)}${r.smiles.length > 70 ? '…' : ''}</p>`
           : ''}
+        ${_tagBadges(r)}
         <div class="result-actions">
           <a href="/compound/${r.id}" class="btn btn-sm btn-secondary">View</a>
-          ${r.pdf_filename
-            ? `<a href="/pdf/${encodeURIComponent(r.pdf_filename)}" target="_blank" class="btn btn-sm btn-ghost">${_fileSvg} PDF</a>`
+          ${(r.pdf_count > 0 || r.pdf_filename)
+            ? `<a href="/compound/${r.id}" class="btn btn-sm btn-ghost">${_fileSvg} ${(r.pdf_count || 1) > 1 ? r.pdf_count + ' PDFs' : 'PDF'}</a>`
             : ''}
         </div>
       </div>

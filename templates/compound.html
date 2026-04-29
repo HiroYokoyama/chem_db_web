@@ -56,6 +56,19 @@
       </div>
       {% endif %}
     </div>
+
+    {% if tags %}
+    <div style="padding:10px 16px 14px; border-top:1px solid var(--border)">
+      <div class="tag-row">
+        {% for tag in tags %}
+        <a class="tag-pill" href="{{ url_for('index', tag=tag) }}"
+           title="Filter library by #{{ tag }}">
+          <svg class="icon" aria-hidden="true" style="width:.7em;height:.7em;margin-right:1px"><use href="#icon-tag"/></svg>#{{ tag }}
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
   </div>
 
   <!-- Info panel -->
@@ -77,20 +90,41 @@
     {% endif %}
 
     <div class="info-card">
-      <div class="info-card-title">Synthetic Protocol (PDF)</div>
-      {% if c.pdf_filename %}
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <a class="btn btn-primary" href="{{ url_for('serve_pdf', filename=c.pdf_filename) }}"
-           target="_blank">
-          <svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg> Open PDF
-        </a>
-        <a class="btn btn-secondary" href="{{ url_for('download_pdf', filename=c.pdf_filename) }}">
-          <svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg> Download
-        </a>
+      <div class="info-card-title">
+        PDFs / Spectra
+        {% if pdfs %}
+        <span style="font-size:11px; font-weight:400; text-transform:none; letter-spacing:0; color:var(--accent); margin-left:6px;">
+          {{ pdfs | length }} file{% if pdfs | length != 1 %}s{% endif %}
+        </span>
+        {% endif %}
       </div>
-      <p class="file-name-hint">{{ c.pdf_filename }}</p>
+      {% if pdfs %}
+        {% for pdf in pdfs %}
+        <div class="pdf-list-item">
+          <span class="badge badge-pdf-type ptype-{{ pdf.pdf_type | lower | replace(' ', '-') | replace('/', '-') }}">
+            {{ pdf.pdf_type }}
+          </span>
+          <span class="pdf-filename">{{ pdf.filename }}</span>
+          <div class="pdf-list-actions">
+            <a class="btn btn-sm btn-secondary"
+               href="{{ url_for('serve_pdf', filename=pdf.filename) }}"
+               target="_blank">
+              <svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg> Open
+            </a>
+            <a class="btn btn-sm btn-ghost"
+               href="{{ url_for('download_pdf', filename=pdf.filename) }}">
+              <svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg>
+            </a>
+          </div>
+        </div>
+        {% endfor %}
+        <p style="margin-top:10px">
+          <a href="{{ url_for('edit_compound', cid=c.id) }}" style="font-size:12.5px">
+            <svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg> Add more PDFs
+          </a>
+        </p>
       {% else %}
-      <p class="muted">No PDF attached.
+      <p class="muted">No PDFs attached.
         <a href="{{ url_for('edit_compound', cid=c.id) }}">Upload one?</a>
       </p>
       {% endif %}

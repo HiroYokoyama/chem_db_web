@@ -29,6 +29,20 @@
                placeholder="e.g. Your Name">
       </div>
 
+      <div class="form-group">
+        <label class="form-label">
+          <svg class="icon" aria-hidden="true"><use href="#icon-tag"/></svg>
+          Tags
+        </label>
+        <input type="text" name="tags" class="form-control"
+               value="{{ format_tags(c.tags) }}"
+               placeholder="#triphenylene #sumanene #PAH"
+               autocomplete="off">
+        <p style="font-size:11.5px; color:var(--muted); margin-top:5px;">
+          Use <code>#</code> prefix or separate with spaces/commas
+        </p>
+      </div>
+
       {% set init_smiles = c.smiles %}
       {% set init_mol    = c.molblock %}
       {% include "editor_snippet.html" %}
@@ -41,29 +55,45 @@
         <textarea name="notes" class="form-control" rows="7">{{ c.notes or '' }}</textarea>
       </div>
 
-      <div class="form-group" style="margin-top:4px">
+      <!-- Existing PDFs -->
+      {% if existing_pdfs %}
+      <div class="form-group">
         <label class="form-label">
-          Synthetic Protocol (PDF)
-          {% if c.pdf_filename %}
-          — current:
-          <a href="{{ url_for('serve_pdf', filename=c.pdf_filename) }}" target="_blank"
-             style="font-weight:400;text-transform:none;letter-spacing:0">
-            {{ c.pdf_filename }}
-          </a>
-          {% endif %}
+          <svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg>
+          Existing PDFs
         </label>
-        <div class="file-drop-zone" id="drop_zone">
-          <input type="file" name="pdf" id="pdf_input" accept=".pdf" class="file-input">
-          <label for="pdf_input" class="file-label">
-            <span class="file-icon">
-              <svg class="icon icon-xl" aria-hidden="true"><use href="#icon-file"/></svg>
-            </span>
-            <strong>Click to choose or drag a PDF here</strong>
-            <span id="file_name_display">
-              {% if c.pdf_filename %}Replace existing PDF{% else %}No file selected{% endif %}
-            </span>
-          </label>
+        {% for pdf in existing_pdfs %}
+        <div class="existing-pdf-row">
+          <span class="badge badge-pdf-type ptype-{{ pdf.pdf_type | lower | replace(' ', '-') | replace('/', '-') }}">
+            {{ pdf.pdf_type }}
+          </span>
+          <span class="pdf-filename">{{ pdf.filename }}</span>
+          <a href="{{ url_for('serve_pdf', filename=pdf.filename) }}" target="_blank"
+             class="btn btn-sm btn-ghost" style="position:relative;z-index:1">Open</a>
+          <form method="POST"
+                action="{{ url_for('delete_compound_pdf', cid=c.id, pid=pdf.id) }}"
+                onsubmit="return confirm('Remove this PDF?')"
+                style="display:inline; margin:0">
+            <button type="submit" class="btn btn-sm btn-danger" style="position:relative;z-index:1">
+              <svg class="icon" aria-hidden="true"><use href="#icon-x"/></svg>
+            </button>
+          </form>
         </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Add new PDFs -->
+      <div class="form-group">
+        <label class="form-label">
+          <svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg>
+          {% if existing_pdfs %}Add More PDFs{% else %}PDFs / Spectra{% endif %}
+        </label>
+        <div id="pdf_rows_container"></div>
+        <button type="button" class="btn btn-ghost btn-sm" style="margin-top:4px"
+                onclick="addPdfRow()">
+          <svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg> Add PDF
+        </button>
       </div>
 
       <div class="form-actions">
@@ -76,20 +106,38 @@
 </form>
 
 <script>
-const inp  = document.getElementById('pdf_input');
-const disp = document.getElementById('file_name_display');
-inp.addEventListener('change', () => {
-  disp.textContent = inp.files[0]?.name || 'No file selected';
-});
-const dz = document.getElementById('drop_zone');
-dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('dragover'); });
-dz.addEventListener('dragleave', ()  => dz.classList.remove('dragover'));
-dz.addEventListener('drop', e => {
-  e.preventDefault(); dz.classList.remove('dragover');
-  if (e.dataTransfer.files[0]) {
-    inp.files = e.dataTransfer.files;
-    disp.textContent = inp.files[0].name;
-  }
-});
+const PDF_TYPES = {{ pdf_types | tojson }};
+
+function addPdfRow() {
+  const container = document.getElementById('pdf_rows_container');
+  const row = document.createElement('div');
+  row.className = 'pdf-row';
+  row.innerHTML = `
+    <select name="pdf_type" class="form-control">
+      ${PDF_TYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
+    </select>
+    <input type="file" name="pdf_file" accept=".pdf"
+           onchange="this.nextElementSibling.textContent = this.files[0]?.name || ''">
+    <span class="file-name-hint"></span>
+    <button type="button" class="btn btn-ghost btn-sm" title="Remove"
+            onclick="this.closest('.pdf-row').remove()">
+      <svg class="icon" aria-hidden="true"><use href="#icon-x"/></svg>
+    </button>
+  `;
+  container.appendChild(row);
+  const fileInput = row.querySelector('input[type=file]');
+  row.addEventListener('dragover', e => { e.preventDefault(); row.style.borderColor = 'var(--accent)'; });
+  row.addEventListener('dragleave', () => { row.style.borderColor = ''; });
+  row.addEventListener('drop', e => {
+    e.preventDefault(); row.style.borderColor = '';
+    const f = e.dataTransfer.files[0];
+    if (f && f.name.toLowerCase().endsWith('.pdf')) {
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      fileInput.files = dt.files;
+      row.querySelector('.file-name-hint').textContent = f.name;
+    }
+  });
+}
 </script>
 {% endblock %}

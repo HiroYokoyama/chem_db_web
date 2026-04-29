@@ -28,10 +28,23 @@
                placeholder="e.g. Your Name">
       </div>
 
+      <div class="form-group">
+        <label class="form-label">
+          <svg class="icon" aria-hidden="true"><use href="#icon-tag"/></svg>
+          Tags
+        </label>
+        <input type="text" name="tags" class="form-control"
+               placeholder="#triphenylene #sumanene #PAH"
+               autocomplete="off">
+        <p style="font-size:11.5px; color:var(--muted); margin-top:5px;">
+          Use <code>#</code> prefix or separate with spaces/commas
+        </p>
+      </div>
+
       {% include "editor_snippet.html" %}
     </div>
 
-    <!-- Right column: notes + PDF -->
+    <!-- Right column: notes + PDFs -->
     <div>
       <div class="form-group">
         <label class="form-label">Notes / Procedure Summary</label>
@@ -39,18 +52,16 @@
                   placeholder="Reaction conditions, yield, observations…"></textarea>
       </div>
 
-      <div class="form-group" style="margin-top:4px">
-        <label class="form-label">Synthetic Protocol (PDF)</label>
-        <div class="file-drop-zone" id="drop_zone">
-          <input type="file" name="pdf" id="pdf_input" accept=".pdf" class="file-input">
-          <label for="pdf_input" class="file-label">
-            <span class="file-icon">
-              <svg class="icon icon-xl" aria-hidden="true"><use href="#icon-file"/></svg>
-            </span>
-            <strong>Click to choose or drag a PDF here</strong>
-            <span id="file_name_display">No file selected</span>
-          </label>
-        </div>
+      <div class="form-group">
+        <label class="form-label">
+          <svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg>
+          PDFs / Spectra
+        </label>
+        <div id="pdf_rows_container"></div>
+        <button type="button" class="btn btn-ghost btn-sm" id="add_pdf_btn" style="margin-top:4px"
+                onclick="addPdfRow()">
+          <svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg> Add PDF
+        </button>
       </div>
 
       <div class="form-actions">
@@ -63,20 +74,42 @@
 </form>
 
 <script>
-const inp  = document.getElementById('pdf_input');
-const disp = document.getElementById('file_name_display');
-inp.addEventListener('change', () => {
-  disp.textContent = inp.files[0]?.name || 'No file selected';
-});
-const dz = document.getElementById('drop_zone');
-dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('dragover'); });
-dz.addEventListener('dragleave', ()  => dz.classList.remove('dragover'));
-dz.addEventListener('drop', e => {
-  e.preventDefault(); dz.classList.remove('dragover');
-  if (e.dataTransfer.files[0]) {
-    inp.files = e.dataTransfer.files;
-    disp.textContent = inp.files[0].name;
-  }
-});
+const PDF_TYPES = {{ pdf_types | tojson }};
+
+function addPdfRow() {
+  const container = document.getElementById('pdf_rows_container');
+  const row = document.createElement('div');
+  row.className = 'pdf-row';
+  row.innerHTML = `
+    <select name="pdf_type" class="form-control">
+      ${PDF_TYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
+    </select>
+    <input type="file" name="pdf_file" accept=".pdf"
+           onchange="this.nextElementSibling.textContent = this.files[0]?.name || ''">
+    <span class="file-name-hint"></span>
+    <button type="button" class="btn btn-ghost btn-sm" title="Remove"
+            onclick="this.closest('.pdf-row').remove()">
+      <svg class="icon" aria-hidden="true"><use href="#icon-x"/></svg>
+    </button>
+  `;
+  container.appendChild(row);
+  // Set drag-and-drop on the file input
+  const fileInput = row.querySelector('input[type=file]');
+  row.addEventListener('dragover', e => { e.preventDefault(); row.style.borderColor = 'var(--accent)'; });
+  row.addEventListener('dragleave', () => { row.style.borderColor = ''; });
+  row.addEventListener('drop', e => {
+    e.preventDefault(); row.style.borderColor = '';
+    const f = e.dataTransfer.files[0];
+    if (f && f.name.toLowerCase().endsWith('.pdf')) {
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      fileInput.files = dt.files;
+      row.querySelector('.file-name-hint').textContent = f.name;
+    }
+  });
+}
+
+// Start with one row
+addPdfRow();
 </script>
 {% endblock %}

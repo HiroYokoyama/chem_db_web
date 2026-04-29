@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tests for Molibrary (app.py).
+Tests for Molibrary (app.py) — v1.1.0
 
 Run from chem_db_web/:
     pytest tests/ -v
@@ -11,6 +11,7 @@ import io
 import json
 import os
 import sys
+import sqlite3
 import tempfile
 import pytest
 
@@ -18,14 +19,16 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import molibrary.app as _app_module
-from molibrary.app import app, init_db, mol_to_inchi_key, mol_to_svg, save_pdf
+from molibrary.app import (
+    app, init_db, mol_to_inchi_key, mol_to_svg, save_pdf, parse_tags
+)
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture()
 def tmp_db(tmp_path, monkeypatch):
-    """Point the app at a fresh in-memory-like SQLite file for each test."""
+    """Point the app at a fresh SQLite file for each test."""
     db_file = str(tmp_path / "test_compounds.db")
     pdf_dir = str(tmp_path / "pdfs")
     os.makedirs(pdf_dir, exist_ok=True)
@@ -45,13 +48,14 @@ def client(tmp_db):
 # ── Helper ────────────────────────────────────────────────────────────────────
 
 def _add_compound(client, name="Aspirin", smiles="CC(=O)Oc1ccccc1C(=O)O",
-                  notes="", author=""):
+                  notes="", author="", tags=""):
     return client.post("/add", data={
         "name": name,
         "author": author,
         "smiles": smiles,
         "molblock": "",
         "notes": notes,
+        "tags": tags,
     }, follow_redirects=True)
 
 
@@ -59,7 +63,6 @@ def _add_compound(client, name="Aspirin", smiles="CC(=O)Oc1ccccc1C(=O)O",
 
 class TestInitDb:
     def test_creates_table(self, tmp_db):
-        import sqlite3
         db_path, _ = tmp_db
         with sqlite3.connect(db_path) as conn:
             tables = [r[0] for r in conn.execute(
@@ -67,29 +70,35 @@ class TestInitDb:
             ).fetchall()]
         assert "compounds" in tables
 
-    def test_inchi_key_column_exists(self, tmp_db):
-        import sqlite3
+    def test_creates_compound_pdfs_table(self, tmp_db):
         db_path, _ = tmp_db
         with sqlite3.connect(db_path) as conn:
-            cols = [r[1] for r in conn.execute(
-                "PRAGMA table_info(compounds)"
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()]
+        assert "compound_pdfs" in tables
+
+    def test_inchi_key_column_exists(self, tmp_db):
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(compounds)").fetchall()]
         assert "inchi_key" in cols
 
     def test_author_column_exists(self, tmp_db):
-        import sqlite3
         db_path, _ = tmp_db
         with sqlite3.connect(db_path) as conn:
-            cols = [r[1] for r in conn.execute(
-                "PRAGMA table_info(compounds)"
-            ).fetchall()]
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(compounds)").fetchall()]
         assert "author" in cols
 
-    def test_migration_adds_inchi_key(self, tmp_path, monkeypatch):
-        """Simulate a pre-existing DB without inchi_key/author and verify migration adds them."""
-        import sqlite3
+    def test_tags_column_exists(self, tmp_db):
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(compounds)").fetchall()]
+        assert "tags" in cols
+
+    def test_migration_adds_missing_columns(self, tmp_path, monkeypatch):
+        """Simulate a pre-existing DB without inchi_key/author/tags and verify migration."""
         db_file = str(tmp_path / "old.db")
-        # Create legacy schema without inchi_key or author
         with sqlite3.connect(db_file) as conn:
             conn.execute('''CREATE TABLE compounds (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,11 +111,61 @@ class TestInitDb:
         os.makedirs(str(tmp_path / "pdfs"), exist_ok=True)
         init_db()
         with sqlite3.connect(db_file) as conn:
-            cols = [r[1] for r in conn.execute(
-                "PRAGMA table_info(compounds)"
-            ).fetchall()]
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(compounds)").fetchall()]
         assert "inchi_key" in cols
         assert "author" in cols
+        assert "tags" in cols
+
+    def test_migration_moves_pdf_filename_to_compound_pdfs(self, tmp_path, monkeypatch):
+        """Old db with pdf_filename entries should be migrated to compound_pdfs."""
+        db_file = str(tmp_path / "old.db")
+        with sqlite3.connect(db_file) as conn:
+            conn.execute('''CREATE TABLE compounds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL, smiles TEXT, molblock TEXT,
+                pdf_filename TEXT, notes TEXT,
+                created_at TEXT DEFAULT (datetime('now','localtime')))''')
+            conn.execute(
+                "INSERT INTO compounds (name, pdf_filename) VALUES (?,?)",
+                ("OldComp", "old_protocol.pdf")
+            )
+            conn.execute(
+                "INSERT INTO compounds (name, pdf_filename) VALUES (?,?)",
+                ("NoPDF", None)
+            )
+            conn.commit()
+        monkeypatch.setattr(_app_module, "DB_PATH", db_file)
+        monkeypatch.setattr(_app_module, "PDF_DIR", str(tmp_path / "pdfs"))
+        os.makedirs(str(tmp_path / "pdfs"), exist_ok=True)
+        init_db()
+        with sqlite3.connect(db_file) as conn:
+            rows = conn.execute("SELECT filename, pdf_type FROM compound_pdfs").fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == "old_protocol.pdf"
+        assert rows[0][1] == "Protocol"
+
+    def test_migration_does_not_run_twice(self, tmp_path, monkeypatch):
+        """Migration should not duplicate rows on repeated init_db() calls."""
+        db_file = str(tmp_path / "old.db")
+        with sqlite3.connect(db_file) as conn:
+            conn.execute('''CREATE TABLE compounds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL, smiles TEXT, molblock TEXT,
+                pdf_filename TEXT, notes TEXT,
+                created_at TEXT DEFAULT (datetime('now','localtime')))''')
+            conn.execute(
+                "INSERT INTO compounds (name, pdf_filename) VALUES (?,?)",
+                ("OldComp", "file.pdf")
+            )
+            conn.commit()
+        monkeypatch.setattr(_app_module, "DB_PATH", db_file)
+        monkeypatch.setattr(_app_module, "PDF_DIR", str(tmp_path / "pdfs"))
+        os.makedirs(str(tmp_path / "pdfs"), exist_ok=True)
+        init_db()
+        init_db()  # second call
+        with sqlite3.connect(db_file) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM compound_pdfs").fetchone()[0]
+        assert count == 1  # not duplicated
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -126,7 +185,6 @@ class TestHelpers:
     def test_mol_to_inchi_key_valid(self):
         key = mol_to_inchi_key("CCO")
         assert key is not None
-        # InChI Keys are 27 chars: XXXXXXXXXXXXXX-YYYYYYYYYY-Z
         assert len(key) == 27
         assert key.count("-") == 2
 
@@ -145,7 +203,6 @@ class TestHelpers:
         assert save_pdf(fake) is None
 
     def test_save_pdf_non_ascii_filename(self, tmp_path, monkeypatch):
-        """Non-ASCII filenames (e.g. Japanese) must not silently fail."""
         monkeypatch.setattr(_app_module, "PDF_DIR", str(tmp_path))
         saved_path = []
 
@@ -174,6 +231,219 @@ class TestHelpers:
         assert result == "protocol.pdf"
 
 
+# ── Tags ──────────────────────────────────────────────────────────────────────
+
+class TestTags:
+    def test_parse_tags_hash_prefix(self):
+        assert parse_tags('#NMR #MS') == 'NMR,MS'
+
+    def test_parse_tags_comma_separated(self):
+        assert parse_tags('NMR, MS, synthesis') == 'NMR,MS,synthesis'
+
+    def test_parse_tags_mixed(self):
+        assert parse_tags('#NMR MS, synthesis') == 'NMR,MS,synthesis'
+
+    def test_parse_tags_empty(self):
+        assert parse_tags('') == ''
+
+    def test_parse_tags_whitespace_only(self):
+        assert parse_tags('   ') == ''
+
+    def test_parse_tags_deduplication(self):
+        assert parse_tags('#NMR #NMR #MS') == 'NMR,MS'
+
+    def test_parse_tags_preserves_order(self):
+        result = parse_tags('#NMR #MS #X-ray')
+        assert result == 'NMR,MS,X-ray'
+
+    def test_add_compound_with_tags(self, client, tmp_db):
+        _add_compound(client, name="Tagged", smiles="CCO", tags="#NMR #MS")
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute("SELECT tags FROM compounds WHERE name='Tagged'").fetchone()
+        assert row[0] == 'NMR,MS'
+
+    def test_tags_in_view(self, client):
+        _add_compound(client, name="Tagged", smiles="CCO", tags="#NMR")
+        resp = client.get("/compound/1")
+        assert b"NMR" in resp.data
+
+    def test_search_by_hash_tag(self, client):
+        _add_compound(client, name="Tagged", smiles="CCO", tags="#NMR")
+        _add_compound(client, name="Untagged", smiles="CC")
+        data = json.loads(client.get('/api/compounds?q=%23NMR').data)
+        names = [r['name'] for r in data['results']]
+        assert 'Tagged' in names
+        assert 'Untagged' not in names
+
+    def test_general_search_includes_tags(self, client):
+        _add_compound(client, name="Compound", smiles="CCO", tags="#synthesis")
+        data = json.loads(client.get('/api/compounds?q=synthesis').data)
+        assert len(data['results']) >= 1
+        assert data['results'][0]['name'] == 'Compound'
+
+    def test_tags_in_api_response(self, client):
+        _add_compound(client, name="Test", smiles="CCO", tags="#X-ray")
+        data = json.loads(client.get('/api/compounds').data)
+        assert data['results'][0]['tags'] == 'X-ray'
+
+    def test_edit_updates_tags(self, client, tmp_db):
+        _add_compound(client, name="Test", smiles="CCO", tags="#NMR")
+        client.post("/compound/1/edit", data={
+            "name": "Test", "smiles": "CCO", "molblock": "", "notes": "", "tags": "#NMR #MS"
+        }, follow_redirects=True)
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute("SELECT tags FROM compounds WHERE id=1").fetchone()
+        assert row[0] == 'NMR,MS'
+
+    def test_api_add_stores_tags(self, client):
+        client.post("/api/compounds", json={"name": "Test", "smiles": "CCO", "tags": "#NMR #MS"})
+        data = json.loads(client.get('/api/compounds?q=Test').data)
+        assert data['results'][0]['tags'] == 'NMR,MS'
+
+    def test_index_tag_route_prefills_search(self, client):
+        resp = client.get("/?tag=NMR")
+        assert resp.status_code == 200
+
+
+# ── Multiple PDFs ─────────────────────────────────────────────────────────────
+
+class TestMultiplePdfs:
+    def test_add_single_pdf(self, client, tmp_db):
+        client.post('/add', data={
+            'name': 'WithPDF', 'smiles': 'CCO',
+            'pdf_file': (io.BytesIO(b'%PDF-1.4 fake'), 'nmr.pdf'),
+            'pdf_type': 'NMR',
+        }, content_type='multipart/form-data', follow_redirects=True)
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute("SELECT filename, pdf_type FROM compound_pdfs").fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == 'nmr.pdf'
+        assert rows[0][1] == 'NMR'
+
+    def test_add_multiple_pdfs(self, client, tmp_db):
+        client.post('/add', data={
+            'name': 'MultiPDF', 'smiles': 'CCO',
+            'pdf_file': [
+                (io.BytesIO(b'%PDF-1.4 nmr'), 'nmr_spec.pdf'),
+                (io.BytesIO(b'%PDF-1.4 ms'),  'ms_spec.pdf'),
+            ],
+            'pdf_type': ['NMR', 'MS'],
+        }, content_type='multipart/form-data', follow_redirects=True)
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT pdf_type FROM compound_pdfs ORDER BY id"
+            ).fetchall()
+        assert [r[0] for r in rows] == ['NMR', 'MS']
+
+    def test_pdf_count_in_api_response(self, client, tmp_db):
+        client.post('/add', data={
+            'name': 'WithPDF', 'smiles': 'CCO',
+            'pdf_file': [(io.BytesIO(b'%PDF-1.4'), 'a.pdf'),
+                         (io.BytesIO(b'%PDF-1.4'), 'b.pdf')],
+            'pdf_type': ['NMR', 'MS'],
+        }, content_type='multipart/form-data', follow_redirects=True)
+        data = json.loads(client.get('/api/compounds').data)
+        assert data['results'][0]['pdf_count'] == 2
+
+    def test_pdf_count_in_search_api(self, client, tmp_db):
+        client.post('/add', data={
+            'name': 'WithPDF', 'smiles': 'CCO',
+            'pdf_file': (io.BytesIO(b'%PDF-1.4'), 'nmr.pdf'),
+            'pdf_type': 'NMR',
+        }, content_type='multipart/form-data', follow_redirects=True)
+        resp = client.post('/api/search', json={"smiles": "CCO", "mode": "exact"})
+        data = json.loads(resp.data)
+        assert data['results'][0]['pdf_count'] == 1
+
+    def test_legacy_pdf_field_still_works(self, client, tmp_db):
+        """Old 'pdf' field (single upload) must still be accepted."""
+        client.post('/add', data={
+            'name': 'LegacyPDF', 'smiles': 'CCO',
+            'pdf': (io.BytesIO(b'%PDF-1.4'), 'legacy.pdf'),
+        }, content_type='multipart/form-data', follow_redirects=True)
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute("SELECT * FROM compound_pdfs").fetchall()
+        assert len(rows) == 1
+
+    def test_pdfs_shown_in_compound_view(self, client, tmp_db):
+        client.post('/add', data={
+            'name': 'View', 'smiles': 'CCO',
+            'pdf_file': (io.BytesIO(b'%PDF-1.4'), 'nmr.pdf'),
+            'pdf_type': 'NMR',
+        }, content_type='multipart/form-data', follow_redirects=True)
+        resp = client.get('/compound/1')
+        assert b'NMR' in resp.data
+        assert b'nmr.pdf' in resp.data
+
+    def test_delete_compound_pdf(self, client, tmp_db):
+        client.post('/add', data={
+            'name': 'ToDelete', 'smiles': 'CCO',
+            'pdf_file': (io.BytesIO(b'%PDF-1.4'), 'delete_me.pdf'),
+            'pdf_type': 'NMR',
+        }, content_type='multipart/form-data', follow_redirects=True)
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            pdf_id = conn.execute("SELECT id FROM compound_pdfs LIMIT 1").fetchone()[0]
+        resp = client.post(f'/compound/1/pdf/{pdf_id}/delete', follow_redirects=True)
+        assert resp.status_code == 200
+        with sqlite3.connect(db_path) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM compound_pdfs").fetchone()[0]
+        assert count == 0
+
+    def test_delete_pdf_wrong_compound_is_noop(self, client, tmp_db):
+        """Deleting a pdf with wrong cid must not delete it."""
+        _add_compound(client, name="C1", smiles="CCO")
+        _add_compound(client, name="C2", smiles="CC")
+        client.post('/add', data={
+            'name': 'C3', 'smiles': 'CCCO',
+            'pdf_file': (io.BytesIO(b'%PDF-1.4'), 'real.pdf'),
+            'pdf_type': 'NMR',
+        }, content_type='multipart/form-data', follow_redirects=True)
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            pdf_id = conn.execute("SELECT id FROM compound_pdfs LIMIT 1").fetchone()[0]
+        # Try to delete pdf of compound 3 via compound 1's route
+        client.post(f'/compound/1/pdf/{pdf_id}/delete', follow_redirects=True)
+        with sqlite3.connect(db_path) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM compound_pdfs").fetchone()[0]
+        assert count == 1  # untouched
+
+    def test_add_pdf_in_edit(self, client, tmp_db):
+        _add_compound(client, name="Test", smiles="CCO")
+        client.post('/compound/1/edit', data={
+            'name': 'Test', 'smiles': 'CCO', 'molblock': '', 'notes': '', 'tags': '',
+            'pdf_file': (io.BytesIO(b'%PDF-1.4'), 'new.pdf'),
+            'pdf_type': 'MS',
+        }, content_type='multipart/form-data', follow_redirects=True)
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute("SELECT pdf_type FROM compound_pdfs").fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == 'MS'
+
+    def test_no_pdf_count_zero(self, client):
+        _add_compound(client, name="NoPDF", smiles="CCO")
+        data = json.loads(client.get('/api/compounds').data)
+        assert data['results'][0]['pdf_count'] == 0
+
+    def test_invalid_pdf_type_defaults_to_other(self, client, tmp_db):
+        """An unknown pdf_type value should be stored as 'Other'."""
+        client.post('/add', data={
+            'name': 'Test', 'smiles': 'CCO',
+            'pdf_file': (io.BytesIO(b'%PDF-1.4'), 'f.pdf'),
+            'pdf_type': 'UNKNOWNTYPE',
+        }, content_type='multipart/form-data', follow_redirects=True)
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute("SELECT pdf_type FROM compound_pdfs").fetchone()
+        assert row[0] == 'Other'
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 class TestIndex:
@@ -186,6 +456,10 @@ class TestIndex:
         _add_compound(client, name="Ethanol", smiles="CCO")
         resp = client.get("/")
         assert b"Ethanol" in resp.data
+
+    def test_tag_query_param_accepted(self, client):
+        resp = client.get("/?tag=NMR")
+        assert resp.status_code == 200
 
 
 class TestAdd:
@@ -203,7 +477,6 @@ class TestAdd:
         assert b"Name is required" in resp.data
 
     def test_add_stores_inchi_key(self, client, tmp_db):
-        import sqlite3
         _add_compound(client, name="Aspirin", smiles="CC(=O)Oc1ccccc1C(=O)O")
         db_path, _ = tmp_db
         with sqlite3.connect(db_path) as conn:
@@ -215,7 +488,6 @@ class TestAdd:
         assert len(row[0]) == 27
 
     def test_add_stores_author(self, client, tmp_db):
-        import sqlite3
         _add_compound(client, name="Caffeine", smiles="Cn1cnc2c1c(=O)n(C)c(=O)n2C",
                       author="Test Author")
         db_path, _ = tmp_db
@@ -232,6 +504,7 @@ class TestAdd:
         assert b"Unknown" in resp.data
 
     def test_add_with_pdf(self, client, tmp_db):
+        """Legacy 'pdf' field must still save the file to pdf_dir."""
         _, pdf_dir = tmp_db
         pdf_data = b"%PDF-1.4 fake content"
         resp = client.post("/add", data={
@@ -279,23 +552,22 @@ class TestEditCompound:
             "smiles": "CCO",
             "molblock": "",
             "notes": "",
+            "tags": "",
         }, follow_redirects=True)
         assert b"New Name" in resp.data
 
     def test_edit_updates_inchi_key(self, client, tmp_db):
-        import sqlite3
         _add_compound(client, name="Test", smiles="CCO")
         client.post("/compound/1/edit", data={
             "name": "Test",
             "smiles": "CC(=O)Oc1ccccc1C(=O)O",  # aspirin
             "molblock": "",
             "notes": "",
+            "tags": "",
         }, follow_redirects=True)
         db_path, _ = tmp_db
         with sqlite3.connect(db_path) as conn:
-            row = conn.execute(
-                "SELECT inchi_key FROM compounds WHERE id=1"
-            ).fetchone()
+            row = conn.execute("SELECT inchi_key FROM compounds WHERE id=1").fetchone()
         aspirin_key = mol_to_inchi_key("CC(=O)Oc1ccccc1C(=O)O")
         assert row[0] == aspirin_key
 
@@ -306,6 +578,21 @@ class TestDeleteCompound:
         resp = client.post("/compound/1/delete", follow_redirects=True)
         assert resp.status_code == 200
         assert b"ToDelete" not in resp.data
+
+    def test_delete_also_removes_pdfs(self, client, tmp_db):
+        client.post('/add', data={
+            'name': 'WithPDF', 'smiles': 'CCO',
+            'pdf_file': (io.BytesIO(b'%PDF-1.4'), 'todelete.pdf'),
+            'pdf_type': 'NMR',
+        }, content_type='multipart/form-data', follow_redirects=True)
+        db_path, _ = tmp_db
+        with sqlite3.connect(db_path) as conn:
+            count_before = conn.execute("SELECT COUNT(*) FROM compound_pdfs").fetchone()[0]
+        assert count_before == 1
+        client.post("/compound/1/delete", follow_redirects=True)
+        with sqlite3.connect(db_path) as conn:
+            count_after = conn.execute("SELECT COUNT(*) FROM compound_pdfs").fetchone()[0]
+        assert count_after == 0
 
 
 class TestSearch:
@@ -333,8 +620,7 @@ class TestStructureSvgApi:
 
 class TestCompoundsApi:
     def test_empty(self, client):
-        resp = client.get("/api/compounds")
-        data = json.loads(resp.data)
+        data = json.loads(client.get("/api/compounds").data)
         assert data["results"] == []
 
     def test_returns_all(self, client):
@@ -361,6 +647,21 @@ class TestCompoundsApi:
         data = json.loads(client.get("/api/compounds").data)
         assert data["results"][0]["inchi_key"] is not None
 
+    def test_results_have_pdf_count(self, client):
+        _add_compound(client, name="NoPDF", smiles="CCO")
+        data = json.loads(client.get("/api/compounds").data)
+        assert "pdf_count" in data["results"][0]
+        assert data["results"][0]["pdf_count"] == 0
+
+    def test_tag_hash_search_only_tags_column(self, client):
+        """#NMR query should only match compounds tagged NMR, not name/notes."""
+        _add_compound(client, name="NMR Compound", smiles="CCO")  # name has NMR but no tag
+        _add_compound(client, name="Tagged", smiles="CC", tags="#NMR")
+        data = json.loads(client.get('/api/compounds?q=%23NMR').data)
+        names = [r['name'] for r in data['results']]
+        assert 'Tagged' in names
+        assert 'NMR Compound' not in names
+
 
 class TestStructureSearchApi:
     def test_substructure_match(self, client):
@@ -383,6 +684,12 @@ class TestStructureSearchApi:
         assert len(data["results"]) >= 1
         assert data["results"][0]["name"] == "Aspirin"
 
+    def test_search_results_have_pdf_count(self, client):
+        _add_compound(client, name="Aspirin", smiles="CC(=O)Oc1ccccc1C(=O)O")
+        resp = client.post("/api/search", json={"smiles": "c1ccccc1", "mode": "substructure"})
+        data = json.loads(resp.data)
+        assert "pdf_count" in data["results"][0]
+
     def test_invalid_smiles_query(self, client):
         resp = client.post("/api/search", json={"smiles": "NOT_SMILES"})
         assert resp.status_code == 400
@@ -403,7 +710,6 @@ class TestExactSearchApi:
         assert data["results"][0]["name"] == "Ethanol"
 
     def test_exact_match_not_found(self, client):
-        """A different molecule must not appear as an exact match."""
         _add_compound(client, name="Ethanol", smiles="CCO")
         resp = client.post("/api/search", json={"smiles": "CCCO", "mode": "exact"})
         assert resp.status_code == 200
@@ -411,7 +717,6 @@ class TestExactSearchApi:
         assert data["results"] == []
 
     def test_exact_match_excludes_superstructure(self, client):
-        """Substructure of query must not appear in exact results."""
         _add_compound(client, name="Aspirin", smiles="CC(=O)Oc1ccccc1C(=O)O")
         _add_compound(client, name="Benzene", smiles="c1ccccc1")
         resp = client.post("/api/search", json={
@@ -423,16 +728,13 @@ class TestExactSearchApi:
         assert "Benzene" not in names
 
     def test_exact_match_canonical_smiles_variant(self, client):
-        """Different but equivalent SMILES must resolve to the same InChI Key."""
         _add_compound(client, name="Ethanol", smiles="CCO")
-        # OCC is the same molecule written differently
         resp = client.post("/api/search", json={"smiles": "OCC", "mode": "exact"})
         data = json.loads(resp.data)
         assert len(data["results"]) == 1
         assert data["results"][0]["name"] == "Ethanol"
 
     def test_exact_match_multiple_compounds(self, client):
-        """Two distinct compounds stored; exact query returns only the matching one."""
         _add_compound(client, name="Ethanol", smiles="CCO")
         _add_compound(client, name="Methanol", smiles="CO")
         resp = client.post("/api/search", json={"smiles": "CO", "mode": "exact"})
@@ -451,10 +753,8 @@ class TestExactSearchApi:
         assert data["results"] == []
 
     def test_exact_match_by_inchi_key_directly(self, client):
-        """Exact mode must accept a direct InChI Key string as query."""
         _add_compound(client, name="Ethanol", smiles="CCO")
         key = mol_to_inchi_key("CCO")
-        # Send the InChI Key as the 'smiles' field in 'exact' mode
         resp = client.post("/api/search", json={"smiles": key, "mode": "exact"})
         assert resp.status_code == 200
         data = json.loads(resp.data)
@@ -462,8 +762,6 @@ class TestExactSearchApi:
         assert data["results"][0]["name"] == "Ethanol"
 
     def test_exact_match_compound_without_inchi_key_not_returned(self, client, tmp_db):
-        """A compound whose inchi_key is NULL must not appear in exact results."""
-        import sqlite3
         db_path, _ = tmp_db
         with sqlite3.connect(db_path) as conn:
             conn.execute(
@@ -473,22 +771,24 @@ class TestExactSearchApi:
             conn.commit()
         resp = client.post("/api/search", json={"smiles": "CCO", "mode": "exact"})
         data = json.loads(resp.data)
-        # NULL inchi_key must not match
         names = [r["name"] for r in data["results"]]
         assert "NullKey" not in names
+
+    def test_exact_search_results_have_pdf_count(self, client):
+        _add_compound(client, name="Ethanol", smiles="CCO")
+        resp = client.post("/api/search", json={"smiles": "CCO", "mode": "exact"})
+        data = json.loads(resp.data)
+        assert "pdf_count" in data["results"][0]
 
 
 class TestOverlapResolution:
     """Tests for _resolve_2d_overlaps applied via mol_to_svg."""
 
     def _make_overlapping_mol(self):
-        """Return an RDKit mol with 2D coords where two non-bonded atoms overlap."""
         from rdkit import Chem
         from rdkit.Chem import AllChem
-        # Biphenyl — RDKit occasionally places rings close on simple calls
         mol = Chem.MolFromSmiles('c1ccc(-c2ccccc2)cc1')
         AllChem.Compute2DCoords(mol)
-        # Force atoms 0 and 6 (one atom from each ring) to the same position
         conf = mol.GetConformer()
         p0 = conf.GetAtomPosition(0)
         conf.SetAtomPosition(6, (p0.x, p0.y, 0.0))
@@ -501,14 +801,11 @@ class TestOverlapResolution:
         from molibrary.app import _resolve_2d_overlaps
         mol = self._make_overlapping_mol()
         conf = mol.GetConformer()
-        # Confirm overlap before
         p0 = conf.GetAtomPosition(0)
         p6 = conf.GetAtomPosition(6)
         dist_before = sqrt((p0.x - p6.x) ** 2 + (p0.y - p6.y) ** 2)
         assert dist_before < 0.01
-
         _resolve_2d_overlaps(mol)
-
         p0 = conf.GetAtomPosition(0)
         p6 = conf.GetAtomPosition(6)
         dist_after = sqrt((p0.x - p6.x) ** 2 + (p0.y - p6.y) ** 2)
@@ -534,18 +831,16 @@ class TestOverlapResolution:
         from molibrary.app import _resolve_2d_overlaps
         mol = Chem.MolFromSmiles('[He]')
         AllChem.Compute2DCoords(mol)
-        _resolve_2d_overlaps(mol)   # must not raise
+        _resolve_2d_overlaps(mol)
 
     def test_mol_to_svg_produces_valid_svg_after_overlap_fix(self, client):
         from molibrary.app import mol_to_svg
         mol_to_svg.cache_clear()
-        # Biphenyl — two-ring system; tests that overlap prevention doesn't break valid output
         svg = mol_to_svg('c1ccc(-c2ccccc2)cc1', 400, 400)
         assert svg is not None
         assert '<svg' in svg
 
     def test_bonded_atoms_not_considered_overlapping(self):
-        """Bonded atoms are always close — the algorithm must not try to separate them."""
         from rdkit import Chem
         from rdkit.Chem import AllChem
         from molibrary.app import _resolve_2d_overlaps
@@ -562,7 +857,6 @@ class TestOverlapResolution:
 
 class TestSvgCache:
     def test_same_smiles_returns_cached_result(self, client):
-        """Two calls to mol_to_svg with the same args must return the same object."""
         from molibrary.app import mol_to_svg
         mol_to_svg.cache_clear()
         r1 = mol_to_svg("CCO", 300, 200)
@@ -592,7 +886,6 @@ class TestSvgCache:
         assert resp.headers['ETag'].startswith('"')
 
     def test_svg_endpoint_304_on_matching_etag(self, client):
-        """If-None-Match with a matching ETag must return 304."""
         r1 = client.get("/api/structure.svg?smiles=CCO&w=300&h=200")
         etag = r1.headers['ETag']
         r2 = client.get("/api/structure.svg?smiles=CCO&w=300&h=200",
@@ -600,7 +893,6 @@ class TestSvgCache:
         assert r2.status_code == 304
 
     def test_svg_endpoint_200_after_smiles_change(self, client):
-        """After a compound's SMILES changes the new URL has a different ETag."""
         r1 = client.get("/api/structure.svg?smiles=CCO&w=300&h=200")
         r2 = client.get("/api/structure.svg?smiles=CCCO&w=300&h=200")
         assert r1.status_code == 200
@@ -613,19 +905,14 @@ class TestSvgCache:
         assert 'max-age' in resp.headers['Cache-Control']
 
     def test_edited_compound_serves_fresh_svg(self, client):
-        """Editing a compound SMILES must produce a different ETag on next request."""
         _add_compound(client, name="Ethanol", smiles="CCO")
         r_before = client.get("/api/structure.svg?smiles=CCO&w=240&h=160")
-
-        # Edit the compound to propanol
         client.post("/compound/1/edit", data={
-            "name": "Propanol", "smiles": "CCCO", "molblock": "", "notes": ""
+            "name": "Propanol", "smiles": "CCCO", "molblock": "", "notes": "", "tags": ""
         }, follow_redirects=True)
-
         r_after = client.get("/api/structure.svg?smiles=CCCO&w=240&h=160")
         assert r_before.status_code == 200
         assert r_after.status_code == 200
-        # Different SMILES → different content → different ETag
         assert r_before.headers['ETag'] != r_after.headers['ETag']
 
 
@@ -687,10 +974,30 @@ class TestApiAddCompound:
         assert r["author"] == "Alice"
         assert r["notes"] == "test notes"
 
+    def test_add_stores_tags(self, client):
+        client.post("/api/compounds", json={
+            "name": "Test", "smiles": "C", "tags": "#NMR #MS"
+        })
+        resp = client.get("/api/compounds?q=Test")
+        r = json.loads(resp.data)["results"][0]
+        assert r["tags"] == "NMR,MS"
+
     def test_search_mode_validation(self, client):
         resp = client.post("/api/search", json={"smiles": "CCO", "mode": "badmode"})
         assert resp.status_code == 400
 
     def test_threshold_validation(self, client):
-        resp = client.post("/api/search", json={"smiles": "CCO", "mode": "similarity", "threshold": "notanumber"})
+        resp = client.post("/api/search", json={
+            "smiles": "CCO", "mode": "similarity", "threshold": "notanumber"
+        })
         assert resp.status_code == 400
+
+
+class TestVersionInfo:
+    def test_version_constant_exists(self):
+        from molibrary.app import VERSION
+        assert VERSION == "1.1.0"
+
+    def test_version_shown_in_footer(self, client):
+        resp = client.get("/")
+        assert b"1.1.0" in resp.data

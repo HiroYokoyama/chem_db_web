@@ -19,6 +19,10 @@ try:
 except ImportError:
     RDKIT = False
 
+VERSION = "1.1.0"
+
+PDF_TYPES = ['NMR', 'MS', 'IR', 'UV-Vis', 'X-ray', 'Protocol', 'Report', 'Other']
+
 # Project root is one level above this file (chem_db_web/)
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,7 +42,10 @@ JSME_LOCAL = os.path.isfile(os.path.join(BASE_DIR, 'static', 'jsme', 'jsme.nocac
 def _inject_globals():
     return {
         'jsme_local': JSME_LOCAL,
-        'rdkit': RDKIT
+        'rdkit': RDKIT,
+        'pdf_types': PDF_TYPES,
+        'version': VERSION,
+        'format_tags': _format_tags_for_input,
     }
 
 
@@ -62,18 +69,88 @@ def init_db():
                 inchi_key    TEXT,
                 pdf_filename TEXT,
                 notes        TEXT,
+                tags         TEXT,
                 created_at   TEXT DEFAULT (datetime('now','localtime'))
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS compound_pdfs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                compound_id INTEGER NOT NULL,
+                filename    TEXT NOT NULL,
+                pdf_type    TEXT DEFAULT 'Other',
+                created_at  TEXT DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (compound_id) REFERENCES compounds(id)
             )
         ''')
         # Migrations: add columns that may be absent in older databases
         existing_cols = [row[1] for row in conn.execute("PRAGMA table_info(compounds)").fetchall()]
-        for col, defn in [('inchi_key', 'TEXT'), ('author', 'TEXT')]:
+        for col, defn in [('inchi_key', 'TEXT'), ('author', 'TEXT'), ('tags', 'TEXT')]:
             if col not in existing_cols:
                 conn.execute(f'ALTER TABLE compounds ADD COLUMN {col} {defn}')
+        # Migrate legacy pdf_filename entries to compound_pdfs
+        _migrate_legacy_pdfs(conn)
         conn.commit()
 
 
+def _migrate_legacy_pdfs(conn):
+    """Copy old pdf_filename column data into compound_pdfs table (runs once)."""
+    existing_pdf_count = conn.execute('SELECT COUNT(*) FROM compound_pdfs').fetchone()[0]
+    if existing_pdf_count > 0:
+        return  # Already has compound_pdfs data; skip
+    existing_cols = [row[1] for row in conn.execute("PRAGMA table_info(compounds)").fetchall()]
+    if 'pdf_filename' not in existing_cols:
+        return
+    rows = conn.execute(
+        "SELECT id, pdf_filename FROM compounds WHERE pdf_filename IS NOT NULL AND pdf_filename != ''"
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            "INSERT INTO compound_pdfs (compound_id, filename, pdf_type) VALUES (?,?,?)",
+            (row[0], row[1], 'Protocol')
+        )
+
+
+def _get_compound_pdfs(conn, cid):
+    return conn.execute(
+        'SELECT * FROM compound_pdfs WHERE compound_id=? ORDER BY id',
+        (cid,)
+    ).fetchall()
+
+
+def _get_pdf_counts(conn, compound_ids: list) -> dict:
+    """Return {compound_id: count} for each id in the list."""
+    if not compound_ids:
+        return {}
+    placeholders = ','.join('?' * len(compound_ids))
+    rows = conn.execute(
+        f'SELECT compound_id, COUNT(*) FROM compound_pdfs '
+        f'WHERE compound_id IN ({placeholders}) GROUP BY compound_id',
+        list(compound_ids)
+    ).fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def parse_tags(raw: str) -> str:
+    """Normalize a raw tag string. '#NMR #MS, synthesis' → 'NMR,MS,synthesis'"""
+    if not raw:
+        return ''
+    seen = {}
+    for part in re.split(r'[,\s]+', raw.strip()):
+        tag = part.lstrip('#').strip()
+        if tag and tag not in seen:
+            seen[tag] = True
+    return ','.join(seen.keys())
+
+
+def _format_tags_for_input(tags_str: str) -> str:
+    """'NMR,MS,synthesis' → '#NMR #MS #synthesis' for display in form inputs."""
+    if not tags_str:
+        return ''
+    return ' '.join(f'#{t}' for t in tags_str.split(',') if t)
+
 
 def _resolve_2d_overlaps(mol, max_iter: int = 10) -> None:
     """Post-process an RDKit 2-D conformer to separate overlapping non-bonded atoms.
@@ -266,15 +343,49 @@ def save_pdf(file_obj) -> str | None:
     return filename
 
 
+def _save_pdfs_for_compound(conn, cid: int, req) -> None:
+    """Save all uploaded PDFs (pdf_file/pdf_type pairs) for a compound.
+
+    Also handles the legacy single-file 'pdf' field for backward compatibility.
+    """
+    pdf_files = list(req.files.getlist('pdf_file'))
+    pdf_types = list(req.form.getlist('pdf_type'))
+    # Legacy single pdf field
+    legacy = req.files.get('pdf')
+    if legacy and legacy.filename:
+        pdf_files = [legacy] + pdf_files
+        pdf_types = ['Protocol'] + pdf_types
+    for i, f in enumerate(pdf_files):
+        ptype = pdf_types[i] if i < len(pdf_types) else 'Other'
+        if ptype not in PDF_TYPES:
+            ptype = 'Other'
+        filename = save_pdf(f)
+        if filename:
+            conn.execute(
+                'INSERT INTO compound_pdfs (compound_id, filename, pdf_type) VALUES (?,?,?)',
+                (cid, filename, ptype)
+            )
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
+    tag = request.args.get('tag', '').strip()
     with get_db() as conn:
         compounds = conn.execute(
             'SELECT * FROM compounds ORDER BY created_at DESC'
         ).fetchall()
-    return render_template('index.html', compounds=compounds)
+        ids = [c['id'] for c in compounds]
+        pdf_counts = _get_pdf_counts(conn, ids)
+    # Enrich with pdf_count
+    enriched = []
+    for c in compounds:
+        d = dict(c)
+        d['pdf_count'] = pdf_counts.get(c['id'], 0)
+        enriched.append(d)
+    prefill_search = f'#{tag}' if tag else ''
+    return render_template('index.html', compounds=enriched, prefill_search=prefill_search)
 
 
 @app.route('/add', methods=['GET', 'POST'])
@@ -285,16 +396,18 @@ def add():
         smiles   = request.form.get('smiles', '').strip()
         molblock = request.form.get('molblock', '').strip()
         notes    = request.form.get('notes', '').strip()
+        tags     = parse_tags(request.form.get('tags', ''))
         if not name:
             return render_template('add.html', error='Name is required.')
-        inchi_key    = mol_to_inchi_key(smiles)
-        pdf_filename = save_pdf(request.files.get('pdf'))
+        inchi_key = mol_to_inchi_key(smiles)
         with get_db() as conn:
-            conn.execute(
-                'INSERT INTO compounds (name, author, smiles, molblock, inchi_key, pdf_filename, notes)'
+            cur = conn.execute(
+                'INSERT INTO compounds (name, author, smiles, molblock, inchi_key, notes, tags)'
                 ' VALUES (?,?,?,?,?,?,?)',
-                (name, author, smiles, molblock, inchi_key, pdf_filename, notes)
+                (name, author, smiles, molblock, inchi_key, notes, tags)
             )
+            cid = cur.lastrowid
+            _save_pdfs_for_compound(conn, cid, request)
             conn.commit()
         return redirect(url_for('index'))
     return render_template('add.html')
@@ -304,10 +417,12 @@ def add():
 def view_compound(cid):
     with get_db() as conn:
         c = conn.execute('SELECT * FROM compounds WHERE id=?', (cid,)).fetchone()
-    if not c:
-        abort(404)
+        if not c:
+            abort(404)
+        pdfs = _get_compound_pdfs(conn, cid)
     svg = mol_to_svg(c['smiles'], 400, 300)
-    return render_template('compound.html', c=c, svg=svg)
+    tags = [t for t in (c['tags'] or '').split(',') if t]
+    return render_template('compound.html', c=c, svg=svg, pdfs=pdfs, tags=tags)
 
 
 @app.route('/compound/<int:cid>/edit', methods=['GET', 'POST'])
@@ -316,36 +431,68 @@ def edit_compound(cid):
         c = conn.execute('SELECT * FROM compounds WHERE id=?', (cid,)).fetchone()
     if not c:
         abort(404)
+
     if request.method == 'POST':
         name     = request.form.get('name', '').strip()
         author   = request.form.get('author', '').strip()
         smiles   = request.form.get('smiles', '').strip()
         molblock = request.form.get('molblock', '').strip()
         notes    = request.form.get('notes', '').strip()
+        tags     = parse_tags(request.form.get('tags', ''))
         if not name:
-            return render_template('edit.html', c=c, error='Name is required.')
-        inchi_key    = mol_to_inchi_key(smiles)
-        pdf_filename = c['pdf_filename']
-        new_pdf = save_pdf(request.files.get('pdf'))
-        if new_pdf:
-            pdf_filename = new_pdf
+            with get_db() as conn:
+                existing_pdfs = _get_compound_pdfs(conn, cid)
+            return render_template('edit.html', c=c, existing_pdfs=existing_pdfs,
+                                   error='Name is required.')
+        inchi_key = mol_to_inchi_key(smiles)
         with get_db() as conn:
             conn.execute(
-                'UPDATE compounds SET name=?,author=?,smiles=?,molblock=?,inchi_key=?,pdf_filename=?,notes=?'
+                'UPDATE compounds SET name=?,author=?,smiles=?,molblock=?,inchi_key=?,notes=?,tags=?'
                 ' WHERE id=?',
-                (name, author, smiles, molblock, inchi_key, pdf_filename, notes, cid)
+                (name, author, smiles, molblock, inchi_key, notes, tags, cid)
             )
+            _save_pdfs_for_compound(conn, cid, request)
             conn.commit()
         return redirect(url_for('view_compound', cid=cid))
-    return render_template('edit.html', c=c)
+
+    with get_db() as conn:
+        existing_pdfs = _get_compound_pdfs(conn, cid)
+    return render_template('edit.html', c=c, existing_pdfs=existing_pdfs)
 
 
 @app.route('/compound/<int:cid>/delete', methods=['POST'])
 def delete_compound(cid):
     with get_db() as conn:
+        conn.execute('DELETE FROM compound_pdfs WHERE compound_id=?', (cid,))
         conn.execute('DELETE FROM compounds WHERE id=?', (cid,))
         conn.commit()
     return redirect(url_for('index'))
+
+
+@app.route('/compound/<int:cid>/pdf/<int:pid>/delete', methods=['POST'])
+def delete_compound_pdf(cid, pid):
+    should_delete_file = False
+    filepath = None
+    with get_db() as conn:
+        row = conn.execute(
+            'SELECT filename FROM compound_pdfs WHERE id=? AND compound_id=?', (pid, cid)
+        ).fetchone()
+        if row:
+            filename = row['filename']
+            conn.execute('DELETE FROM compound_pdfs WHERE id=?', (pid,))
+            remaining = conn.execute(
+                'SELECT COUNT(*) FROM compound_pdfs WHERE filename=?', (filename,)
+            ).fetchone()[0]
+            conn.commit()
+            if remaining == 0:
+                should_delete_file = True
+                filepath = os.path.join(PDF_DIR, filename)
+    if should_delete_file and filepath:
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
+    return redirect(url_for('edit_compound', cid=cid))
 
 
 @app.route('/pdf/<path:filename>')
@@ -386,21 +533,35 @@ def structure_svg():
 
 @app.route('/api/compounds')
 def api_compounds():
-    """Text search across name, notes, InChI Key, and SMILES. No query → all compounds."""
+    """Text/tag search across name, notes, InChI Key, SMILES, and tags. No query → all."""
     q = request.args.get('q', '').strip()
     with get_db() as conn:
-        if q:
+        if q.startswith('#') and len(q) > 1:
+            tag_term = f'%{q[1:]}%'
+            rows = conn.execute(
+                'SELECT * FROM compounds WHERE tags LIKE ? ORDER BY created_at DESC',
+                (tag_term,)
+            ).fetchall()
+        elif q:
             rows = conn.execute(
                 '''SELECT * FROM compounds
-                   WHERE name LIKE ? OR notes LIKE ? OR inchi_key LIKE ? OR smiles LIKE ?
+                   WHERE name LIKE ? OR notes LIKE ? OR inchi_key LIKE ?
+                      OR smiles LIKE ? OR tags LIKE ?
                    ORDER BY created_at DESC''',
-                (f'%{q}%', f'%{q}%', f'%{q}%', f'%{q}%')
+                (f'%{q}%', f'%{q}%', f'%{q}%', f'%{q}%', f'%{q}%')
             ).fetchall()
         else:
             rows = conn.execute(
                 'SELECT * FROM compounds ORDER BY created_at DESC'
             ).fetchall()
-    return jsonify({'results': [dict(r) for r in rows]})
+        ids = [r['id'] for r in rows]
+        pdf_counts = _get_pdf_counts(conn, ids)
+    results = []
+    for r in rows:
+        d = dict(r)
+        d['pdf_count'] = pdf_counts.get(r['id'], 0)
+        results.append(d)
+    return jsonify({'results': results})
 
 
 @app.route('/api/compounds', methods=['POST'])
@@ -414,12 +575,13 @@ def api_add_compound():
     author   = (data.get('author') or '').strip()
     notes    = (data.get('notes') or '').strip()
     molblock = (data.get('molblock') or '').strip()
+    tags     = parse_tags(data.get('tags') or '')
     inchi_key = mol_to_inchi_key(smiles)
     with get_db() as conn:
         cur = conn.execute(
-            'INSERT INTO compounds (name, author, smiles, molblock, inchi_key, pdf_filename, notes)'
+            'INSERT INTO compounds (name, author, smiles, molblock, inchi_key, notes, tags)'
             ' VALUES (?,?,?,?,?,?,?)',
-            (name, author, smiles, molblock, inchi_key, None, notes)
+            (name, author, smiles, molblock, inchi_key, notes, tags)
         )
         conn.commit()
         new_id = cur.lastrowid
@@ -456,7 +618,14 @@ def api_search():
             rows = conn.execute(
                 'SELECT * FROM compounds WHERE inchi_key = ?', (query_inchi_key,)
             ).fetchall()
-        return jsonify({'results': [dict(r) for r in rows]})
+            ids = [r['id'] for r in rows]
+            pdf_counts = _get_pdf_counts(conn, ids)
+        results = []
+        for r in rows:
+            d = dict(r)
+            d['pdf_count'] = pdf_counts.get(r['id'], 0)
+            results.append(d)
+        return jsonify({'results': results})
 
     query_mol = Chem.MolFromSmiles(query_smi)
     if query_mol is None:
@@ -487,6 +656,14 @@ def api_search():
                 results.append(r)
         results.sort(key=lambda x: x.get('similarity', 0), reverse=True)
 
+    # Enrich with pdf_count
+    if results:
+        ids = [r['id'] for r in results]
+        with get_db() as conn:
+            pdf_counts = _get_pdf_counts(conn, ids)
+        for r in results:
+            r['pdf_count'] = pdf_counts.get(r['id'], 0)
+
     return jsonify({'results': results})
 
 
@@ -503,7 +680,7 @@ if __name__ == '__main__':
 
     host = '127.0.0.1' if args.localhost else args.host
     init_db()
-    print(f"Molibrary running on http://{host}:{args.port}")
+    print(f"Molibrary v{VERSION} running on http://{host}:{args.port}")
     if host == '0.0.0.0':
         import socket
         try:

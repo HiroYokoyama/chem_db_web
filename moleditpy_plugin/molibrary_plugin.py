@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 PLUGIN_NAME        = "Molibrary Browser"
-PLUGIN_VERSION     = "1.0.0"
+PLUGIN_VERSION     = "1.1.0"
 PLUGIN_AUTHOR      = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Search Molibrary (text / substructure / similarity) and open compound pages."
 PLUGIN_CATEGORY    = "Database"
@@ -396,12 +396,15 @@ class _AddEntryDialog(QDialog):
         self._le_name   = QLineEdit()
         self._le_author = QLineEdit()
         self._le_smiles = QLineEdit(smiles)
+        self._le_tags   = QLineEdit()
+        self._le_tags.setPlaceholderText("#triphenylene #sumanene #PAH")
         self._te_notes  = QTextEdit()
         self._te_notes.setFixedHeight(80)
 
         form.addRow("Name *", self._le_name)
         form.addRow("Author", self._le_author)
         form.addRow("SMILES", self._le_smiles)
+        form.addRow("Tags", self._le_tags)
         form.addRow("Notes", self._te_notes)
 
         self._lbl_err = QLabel()
@@ -436,6 +439,7 @@ class _AddEntryDialog(QDialog):
             'name':   name,
             'author': self._le_author.text().strip(),
             'smiles': self._le_smiles.text().strip(),
+            'tags':   self._le_tags.text().strip(),
             'notes':  self._te_notes.toPlainText().strip(),
         }).encode()
         req = urllib.request.Request(
@@ -591,13 +595,13 @@ class MolibraryBrowserDialog(QDialog):
 
         self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels(
-            ["Name", "Author", "SMILES", "InChI Key", "PDF"]
+            ["Name", "Author", "Tags", "SMILES", "PDFs"]
         )
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -644,6 +648,11 @@ class MolibraryBrowserDialog(QDialog):
             "font-size:10px; color:#6a8; font-family:monospace;"
         )
         pv.addWidget(self._lbl_inchi)
+
+        self._lbl_tags = QLabel()
+        self._lbl_tags.setWordWrap(True)
+        self._lbl_tags.setStyleSheet("font-size:11px; color:#0969da; font-style:italic;")
+        pv.addWidget(self._lbl_tags)
 
         self._lbl_notes = QLabel()
         self._lbl_notes.setWordWrap(True)
@@ -855,14 +864,18 @@ class MolibraryBrowserDialog(QDialog):
         for r in results:
             row = self._table.rowCount()
             self._table.insertRow(row)
-            name_item = QTableWidgetItem(r.get('name', ''))
-            self._table.setItem(row, 0, name_item)
+            self._table.setItem(row, 0, QTableWidgetItem(r.get('name', '')))
             self._table.setItem(row, 1, QTableWidgetItem(r.get('author', '') or ''))
-            self._table.setItem(row, 2, QTableWidgetItem(r.get('smiles', '') or ''))
-            self._table.setItem(row, 3, QTableWidgetItem(r.get('inchi_key', '') or ''))
+            # Tags: display as #tag1 #tag2
+            tags_raw = r.get('tags', '') or ''
+            tags_display = ' '.join(f'#{t}' for t in tags_raw.split(',') if t)
+            self._table.setItem(row, 2, QTableWidgetItem(tags_display))
+            self._table.setItem(row, 3, QTableWidgetItem(r.get('smiles', '') or ''))
+            pdf_count = r.get('pdf_count', 0) or (1 if r.get('pdf_filename') else 0)
             pdf_item = QTableWidgetItem()
-            if r.get('pdf_filename'):
+            if pdf_count > 0:
                 pdf_item.setIcon(_get_svg_icon(_SVG_CHECKMARK, 16))
+                pdf_item.setText(str(pdf_count))
             self._table.setItem(row, 4, pdf_item)
 
         count = len(results)
@@ -909,6 +922,9 @@ class MolibraryBrowserDialog(QDialog):
         )
 
         self._lbl_inchi.setText(r.get('inchi_key', '') or '')
+        tags_raw = r.get('tags', '') or ''
+        tags_display = ' '.join(f'#{t}' for t in tags_raw.split(',') if t)
+        self._lbl_tags.setText(tags_display)
         notes = (r.get('notes') or '').strip()
         self._lbl_notes.setText(notes[:180] + ('…' if len(notes) > 180 else ''))
 

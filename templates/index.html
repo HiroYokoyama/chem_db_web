@@ -17,7 +17,7 @@
 <div class="search-bar-row" style="margin-top:8px; margin-bottom:28px; display:flex; gap:10px; justify-content:center;">
   <div style="flex:1; max-width:520px; display:flex; gap:8px;">
     <input id="lib_search" type="search" class="form-control"
-           placeholder="Search by name, SMILES, InChI Key, notes…"
+           placeholder="Search by name, SMILES, InChI Key, #tag, notes…"
            autocomplete="off">
     <button class="btn btn-secondary" onclick="libSearch()">
       <svg class="icon" aria-hidden="true"><use href="#icon-search"/></svg> Search
@@ -29,13 +29,14 @@
 <div id="lib_stat" style="visibility:hidden; height:24px; margin-bottom:24px; font-size:13.5px; color:var(--muted); text-align:center; font-weight:500;"></div>
 
 {% if compounds %}
+{% set total_pdf = compounds | selectattr('pdf_count') | list | length %}
 <div class="stat-strip" style="justify-content:center; margin-bottom:40px;">
   <div class="stat-chip">
     <span class="stat-num" id="stat_total">{{ compounds | length }}</span>
     <span class="stat-label">compounds</span>
   </div>
   <div class="stat-chip">
-    <span class="stat-num" id="stat_pdf">{{ compounds | selectattr('pdf_filename') | list | length }}</span>
+    <span class="stat-num" id="stat_pdf">{{ total_pdf }}</span>
     <span class="stat-label">with PDF</span>
   </div>
   <div class="stat-chip">
@@ -71,9 +72,18 @@
         {{ c.smiles[:52] }}{% if c.smiles | length > 52 %}…{% endif %}
       </p>
       {% endif %}
-      <div class="card-meta">
+      {% if c.tags %}
+      <div class="tag-row">
+        {% for tag in c.tags.split(',') %}{% if tag %}
+        <a class="tag-pill" href="{{ url_for('index', tag=tag) }}">#{{ tag }}</a>
+        {% endif %}{% endfor %}
+      </div>
+      {% endif %}
+      <div class="card-meta" style="margin-top:6px">
         <span class="date">{{ c.created_at[:10] }}</span>
-        {% if c.pdf_filename %}
+        {% if c.pdf_count %}
+        <span class="badge badge-pdf">{{ c.pdf_count }} PDF{% if c.pdf_count > 1 %}s{% endif %}</span>
+        {% elif c.pdf_filename %}
         <span class="badge badge-pdf">PDF</span>
         {% endif %}
       </div>
@@ -103,6 +113,21 @@ const _noStructSvg = `<svg class="icon icon-xl" aria-hidden="true"><use href="#i
 const stat   = document.getElementById('lib_stat');
 const input  = document.getElementById('lib_search');
 
+function _pdfBadge(c) {
+  const n = c.pdf_count || (c.pdf_filename ? 1 : 0);
+  if (!n) return '';
+  return `<span class="badge badge-pdf">${n > 1 ? n + ' PDFs' : 'PDF'}</span>`;
+}
+
+function _tagBadges(c) {
+  const raw = c.tags || '';
+  const tags = raw.split(',').filter(t => t.trim());
+  if (!tags.length) return '';
+  return `<div class="tag-row">${
+    tags.map(t => `<a class="tag-pill" href="/?tag=${encodeURIComponent(t)}">#${t}</a>`).join('')
+  }</div>`;
+}
+
 function cardHtml(c) {
   const smiles = c.smiles || '';
   const img = smiles
@@ -111,14 +136,14 @@ function cardHtml(c) {
   const smilesRow = smiles
     ? `<p class="smiles-text" title="${smiles}">${smiles.length > 52 ? smiles.substring(0,52) + '…' : smiles}</p>`
     : '';
-  const pdfBadge = c.pdf_filename ? `<span class="badge badge-pdf">PDF</span>` : '';
   const date = c.created_at ? c.created_at.substring(0,10) : '';
   return `<div class="card">
     <div class="card-img">${img}</div>
     <div class="card-body">
       <h3 class="card-title"><a href="/compound/${c.id}">${c.name}</a></h3>
       ${smilesRow}
-      <div class="card-meta"><span class="date">${date}</span>${pdfBadge}</div>
+      ${_tagBadges(c)}
+      <div class="card-meta" style="margin-top:6px"><span class="date">${date}</span>${_pdfBadge(c)}</div>
     </div>
   </div>`;
 }
@@ -129,7 +154,7 @@ async function libSearch() {
     const resp = await fetch(`/api/compounds?q=${encodeURIComponent(q)}`);
     const data = await resp.json();
     const results = data.results || [];
-    
+
     const wrapper = document.getElementById('results_wrapper');
     if (wrapper) {
       if (results.length > 0) {
@@ -144,7 +169,7 @@ async function libSearch() {
         </div>`;
       }
     }
-    
+
     stat.style.visibility = 'visible';
     if (q) {
       stat.textContent = results.length
@@ -168,11 +193,17 @@ function libClear() {
 }
 
 input.addEventListener('keydown', e => { if (e.key === 'Enter') libSearch(); });
-// Live search with debounce
 let _t;
 input.addEventListener('input', () => {
   clearTimeout(_t);
   _t = setTimeout(libSearch, 280);
 });
+
+// Pre-fill search from URL (e.g. clicking a tag from another page)
+const _prefill = {{ prefill_search | tojson }};
+if (_prefill) {
+  input.value = _prefill;
+  libSearch();
+}
 </script>
 {% endblock %}
