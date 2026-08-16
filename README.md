@@ -2,6 +2,8 @@
 
 [**GitHub Repository**](https://github.com/HiroYokoyama/chem_db_web)
 
+Repo: [https://github.com/HiroYokoyama/chem_db_web/](https://github.com/HiroYokoyama/chem_db_web/)
+
 A self-hosted, offline-capable web application for depositing, searching,
 and viewing organic chemical structures with linked synthetic protocol PDFs.
 Integrates with **MoleditPy** via the bundled plugin.
