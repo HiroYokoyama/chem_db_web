@@ -1,7 +1,5 @@
 # Molibrary — Local Chemical Structure & Protocol Database
 
-[**GitHub Repository**](https://github.com/HiroYokoyama/chem_db_web)
-
 Repo: [https://github.com/HiroYokoyama/chem_db_web/](https://github.com/HiroYokoyama/chem_db_web/)
 
 A self-hosted, offline-capable web application for depositing, searching,
