@@ -1,0 +1,88 @@
+name: Release
+
+# Publishes molibrary_plugin.py as a GitHub Release asset and asks the
+# moleditpy-plugins registry to pick it up. The tag is the bare version
+# (e.g. 1.1.1), matching this repo's earlier releases; a v-prefixed tag is
+# accepted too.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.1.1, without leading v)'
+        required: true
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="${{ github.event.inputs.version }}"
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Create and push tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Verify version matches plugin and app source
+        run: |
+          read_version() {
+            python3 - "$1" "$2" <<'PY'
+          import re, sys
+          text = open(sys.argv[1], encoding="utf-8").read()
+          m = re.search(sys.argv[2] + r"\s*=\s*['\"](.+?)['\"]", text)
+          print(m.group(1).strip() if m else "")
+          PY
+          }
+          PLUGIN_VERSION=$(read_version moleditpy_plugin/molibrary_plugin.py PLUGIN_VERSION)
+          APP_VERSION=$(read_version molibrary/app.py VERSION)
+          echo "Tag version    : $VERSION"
+          echo "PLUGIN_VERSION : $PLUGIN_VERSION"
+          echo "App VERSION    : $APP_VERSION"
+          if [ "$VERSION" != "$PLUGIN_VERSION" ] || [ "$VERSION" != "$APP_VERSION" ]; then
+            echo "ERROR: tag '$VERSION' must match PLUGIN_VERSION in moleditpy_plugin/molibrary_plugin.py and VERSION in molibrary/app.py"
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            --title "Release $VERSION" \
+            --generate-notes \
+            moleditpy_plugin/molibrary_plugin.py
+
+      - name: Trigger moleditpy-plugins registry update
+        if: success()
+        continue-on-error: true
+        env:
+          REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}
+        run: |
+          if [ -n "$REGISTRY_PAT" ]; then
+            curl -s -X POST \
+              -H "Authorization: Bearer $REGISTRY_PAT" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/HiroYokoyama/moleditpy-plugins/dispatches" \
+              -d "{\"event_type\":\"plugin_release\",\"client_payload\":{\"repo\":\"${{ github.repository }}\",\"tag\":\"$TAG\"}}"
+          else
+            echo "REGISTRY_PAT is not set; register the release manually with register-remote-plugin.yml."
+          fi
