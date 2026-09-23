@@ -33,9 +33,9 @@ from PyQt6.QtWidgets import (
 )
 
 PLUGIN_NAME        = "Molibrary Browser"
-PLUGIN_VERSION     = "1.1.0"
+PLUGIN_VERSION     = "1.1.1"
 PLUGIN_AUTHOR      = "HiroYokoyama"
-PLUGIN_DESCRIPTION = "Search Molibrary (text / substructure / similarity) and open compound pages."
+PLUGIN_DESCRIPTION = "Standalone intranet chemistry structure and protocol database. Connects MoleditPy to a local Molibrary server for structure searching and importing."
 PLUGIN_CATEGORY    = "Database"
 
 _DEFAULT_BASE_URL = "http://127.0.0.1:5000"
