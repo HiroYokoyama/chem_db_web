@@ -48,7 +48,14 @@ Single-file Flask app. Key design decisions:
 - `index.html` — compound card grid. No client-side search; uses server-side `/api/compounds`.
 
 ### MoleditPy Plugin (`moleditpy_plugin/molibrary_plugin.py`)
-A single-file PyQt6 dialog plugin for MoleditPy. Installed by copying into `~/.moleditpy/plugins/`.
+A single-file PySide6 dialog plugin for MoleditPy. Installed by copying into `~/.moleditpy/plugins/`.
+
+Version 2 targets MoleditPy 5 and supports Python 3.9–3.14. The web app remains
+Python 3.10+. Install `requirements-plugin.txt` and `pytest-qt` to run the real
+PySide6 tests, with `QT_API=pyside6`, `PYTEST_QT_API=pyside6` and
+`QT_QPA_PLATFORM=offscreen`. CI accepts `moleditpy_ref` (branch, tag or full SHA)
+and validates the real selected `PluginContext` API. The plugin has its own
+LGPL-3.0-or-later texts in `moleditpy_plugin/`; the server retains root GPLv3.
 
 **Plugin architecture:**
 - `initialize(context)` — entry point; registers `Database/Molibrary` menu action

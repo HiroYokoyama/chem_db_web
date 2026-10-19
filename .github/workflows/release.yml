@@ -2,14 +2,14 @@ name: Release
 
 # Publishes molibrary_plugin.py as a GitHub Release asset and asks the
 # moleditpy-plugins registry to pick it up. The tag is the bare version
-# (e.g. 1.1.1), matching this repo's earlier releases; a v-prefixed tag is
+# (e.g. 2.0.0), matching this repo's earlier releases; a v-prefixed tag is
 # accepted too.
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.1.1, without leading v)'
+        description: 'Release version (e.g. 2.0.0, without leading v)'
         required: true
   push:
     tags:
@@ -69,7 +69,10 @@ jobs:
           gh release create "$TAG" \
             --title "Release $VERSION" \
             --generate-notes \
-            moleditpy_plugin/molibrary_plugin.py
+            moleditpy_plugin/molibrary_plugin.py \
+            moleditpy_plugin/LICENSE \
+            moleditpy_plugin/COPYING \
+            moleditpy_plugin/LICENSING.md
 
       - name: Trigger moleditpy-plugins registry update
         if: success()
