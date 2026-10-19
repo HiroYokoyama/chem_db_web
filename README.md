@@ -106,8 +106,20 @@ start.bat --port 8080
 
 `molibrary_plugin.py` connects MoleditPy to a running Molibrary server.
 
+Version 2.0.0 uses **PySide6** and supports **MoleditPy >=5.0.0, <6.0.0**.
+The plugin supports Python 3.9–3.14; the separate web server retains its Python
+3.10+ requirement. Install the plugin into the MoleditPy environment, which
+already supplies PySide6 and RDKit. Existing 1.x plugin releases use PyQt6 and
+remain intended for MoleditPy 4.
+
 **Installation:** copy the file to `~/.moleditpy/plugins/` and reload plugins.
 **Menu:** `Database > Molibrary`
+
+The plugin is LGPL-3.0-or-later; see its
+[licensing scope](moleditpy_plugin/LICENSING.md),
+[LICENSE](moleditpy_plugin/LICENSE) and [COPYING](moleditpy_plugin/COPYING).
+These legal notices are provided alongside the single-file release asset.
+The web application retains the root GPLv3 license.
 
 ### Plugin features
 | Feature | Description |

@@ -19,7 +19,7 @@ try:
 except ImportError:
     RDKIT = False
 
-VERSION = "1.1.1"
+VERSION = "2.0.0"
 
 PDF_TYPES = ['NMR', 'MS', 'IR', 'UV-Vis', 'X-ray', 'Protocol', 'Report', 'Other']
 

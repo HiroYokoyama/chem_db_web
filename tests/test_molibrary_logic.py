@@ -10,12 +10,12 @@ sys.path.append(plugin_dir)
 
 try:
     import molibrary_plugin
-    HAS_PYQT = True
+    HAS_PYSIDE = True
 except ImportError:
-    HAS_PYQT = False
+    HAS_PYSIDE = False
 
-if not HAS_PYQT:
-    pytest.skip("PyQt6 not installed", allow_module_level=True)
+if not HAS_PYSIDE:
+    pytest.skip("PySide6 not installed", allow_module_level=True)
 
 def test_settings_path():
     """Verify the settings JSON path construction."""

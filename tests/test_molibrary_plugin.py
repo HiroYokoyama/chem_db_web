@@ -3,18 +3,18 @@ import os
 import pytest
 from unittest.mock import MagicMock, patch
 try:
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QApplication
-    HAS_PYQT = True
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+    HAS_PYSIDE = True
 except ImportError:
-    HAS_PYQT = False
+    HAS_PYSIDE = False
 
 # Ensure the plugin directory is in sys.path
 # Test is in chem_db_web/tests/, plugin is in chem_db_web/moleditpy_plugin/
 plugin_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "moleditpy_plugin")
 sys.path.append(plugin_dir)
 
-if HAS_PYQT:
+if HAS_PYSIDE:
     from molibrary_plugin import MolibraryBrowserDialog
 else:
     # Create a dummy class so the test collection doesn't fail
@@ -23,14 +23,14 @@ else:
 
 @pytest.fixture
 def mock_context():
-    if not HAS_PYQT:
-        pytest.skip("PyQt6 not installed")
+    if not HAS_PYSIDE:
+        pytest.skip("PySide6 not installed")
     context = MagicMock()
     context.get_main_window.return_value = None
     context.current_molecule = None
     return context
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_on_results_single_hit_no_auto_open(qtbot, mock_context):
     """
     Test that when exactly one result is found, the row is selected 
@@ -63,7 +63,7 @@ def test_on_results_single_hit_no_auto_open(qtbot, mock_context):
         assert dialog._table.currentRow() == 0
         assert "1 compound(s) found" in dialog._lbl_status.text()
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_manual_open_still_works(qtbot, mock_context):
     """
     Test that clicking the 'Open in Browser' button still opens the browser.
@@ -85,7 +85,7 @@ def test_manual_open_still_works(qtbot, mock_context):
         mock_open.assert_called_once_with("http://127.0.0.1:5000/compound/456")
 
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_auto_load_populates_on_open(qtbot, mock_context):
     """On open, the dialog should silently fetch all compounds if server is reachable."""
     fake_results = [{'id': 1, 'name': 'Ethanol', 'smiles': 'CCO',
@@ -106,7 +106,7 @@ def test_auto_load_populates_on_open(qtbot, mock_context):
         assert dialog._table.rowCount() == 1
 
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_auto_load_error_is_silent(qtbot, mock_context):
     """A connection error during auto-load must update the status label, not show a dialog."""
     with patch("molibrary_plugin.QMessageBox") as MockMsgBox:
@@ -121,7 +121,7 @@ def test_auto_load_error_is_silent(qtbot, mock_context):
         assert "not reachable" in dialog._lbl_status.text()
 
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_manual_error_shows_dialog(qtbot, mock_context):
     """A connection error from a manual search must still show a dialog."""
     with patch("molibrary_plugin.QMessageBox") as MockMsgBox:
@@ -134,7 +134,7 @@ def test_manual_error_shows_dialog(qtbot, mock_context):
         MockMsgBox.critical.assert_called_once()
 
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_exact_mode_radio_button_exists(qtbot, mock_context):
     """The 'Exact (InChI Key)' radio button must be present in the mode group."""
     dialog = MolibraryBrowserDialog(mock_context)
@@ -143,7 +143,7 @@ def test_exact_mode_radio_button_exists(qtbot, mock_context):
     assert "exact" in mode_values
 
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_exact_mode_does_not_enable_threshold(qtbot, mock_context):
     """Selecting 'exact' mode must leave the threshold spinbox disabled."""
     dialog = MolibraryBrowserDialog(mock_context)
@@ -155,7 +155,7 @@ def test_exact_mode_does_not_enable_threshold(qtbot, mock_context):
     assert not dialog._spin_thr.isEnabled()
 
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_similarity_mode_enables_threshold(qtbot, mock_context):
     """Selecting 'similarity' mode must enable the threshold spinbox."""
     dialog = MolibraryBrowserDialog(mock_context)
@@ -167,7 +167,7 @@ def test_similarity_mode_enables_threshold(qtbot, mock_context):
     assert dialog._spin_thr.isEnabled()
 
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_local_svg_used_when_rdkit_available(qtbot, mock_context):
     """When RDKit is installed locally, selecting a row must NOT start _SvgFetcher."""
     import molibrary_plugin
@@ -178,7 +178,7 @@ def test_local_svg_used_when_rdkit_available(qtbot, mock_context):
         dialog._results = [{'id': 1, 'name': 'Ethanol', 'smiles': 'CCO',
                              'author': '', 'inchi_key': '', 'notes': ''}]
         dialog._table.setRowCount(1)
-        from PyQt6.QtWidgets import QTableWidgetItem
+        from PySide6.QtWidgets import QTableWidgetItem
         dialog._table.setItem(0, 0, QTableWidgetItem("Ethanol"))
 
         with patch.object(molibrary_plugin._SvgFetcher, "start") as mock_start:
@@ -188,7 +188,7 @@ def test_local_svg_used_when_rdkit_available(qtbot, mock_context):
             mock_start.assert_not_called()
 
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_remote_svg_fallback_when_local_fails(qtbot, mock_context):
     """When _try_local_svg returns '', _SvgFetcher must be started."""
     import molibrary_plugin
@@ -199,7 +199,7 @@ def test_remote_svg_fallback_when_local_fails(qtbot, mock_context):
         dialog._results = [{'id': 1, 'name': 'Ethanol', 'smiles': 'CCO',
                              'author': '', 'inchi_key': '', 'notes': ''}]
         dialog._table.setRowCount(1)
-        from PyQt6.QtWidgets import QTableWidgetItem
+        from PySide6.QtWidgets import QTableWidgetItem
         dialog._table.setItem(0, 0, QTableWidgetItem("Ethanol"))
 
         with patch.object(molibrary_plugin._SvgFetcher, "start") as mock_start:
@@ -208,7 +208,7 @@ def test_remote_svg_fallback_when_local_fails(qtbot, mock_context):
             mock_start.assert_called_once()
 
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_threshold_spinbox_width(qtbot, mock_context):
     """Threshold spinbox must be at least 80 px wide."""
     dialog = MolibraryBrowserDialog(mock_context)
@@ -217,7 +217,7 @@ def test_threshold_spinbox_width(qtbot, mock_context):
            dialog._spin_thr.maximumWidth() >= 90
 
 
-@pytest.mark.skipif(not HAS_PYQT, reason="PyQt6 not installed")
+@pytest.mark.skipif(not HAS_PYSIDE, reason="PySide6 not installed")
 def test_exact_mode_toggled_converts_smiles_to_inchi_key(qtbot, mock_context):
     """Selecting 'exact' mode must convert the text in the query box from SMILES to InChI Key."""
     dialog = MolibraryBrowserDialog(mock_context)

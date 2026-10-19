@@ -996,8 +996,9 @@ class TestApiAddCompound:
 class TestVersionInfo:
     def test_version_constant_exists(self):
         from molibrary.app import VERSION
-        assert VERSION == "1.1.1"
+        assert VERSION == "2.0.0"
 
     def test_version_shown_in_footer(self, client):
+        from molibrary.app import VERSION
         resp = client.get("/")
-        assert b"1.1.1" in resp.data
+        assert VERSION.encode() in resp.data

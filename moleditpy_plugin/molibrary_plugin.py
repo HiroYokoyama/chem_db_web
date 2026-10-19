@@ -15,6 +15,8 @@ Installation:
   Menu:      Database > Molibrary
   Shortcut:  Ctrl+Shift+D
 """
+from __future__ import annotations
+
 import json
 import os
 import urllib.request
@@ -22,9 +24,9 @@ import urllib.parse
 import urllib.error
 import webbrowser
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QPixmap, QFont, QIcon, QPainter
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QThread, Signal, Slot, QTimer, QSize
+from PySide6.QtGui import QPixmap, QFont, QIcon, QPainter
+from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QLabel, QHeaderView,
     QAbstractItemView, QApplication, QMessageBox, QSplitter,
@@ -33,10 +35,14 @@ from PyQt6.QtWidgets import (
 )
 
 PLUGIN_NAME        = "Molibrary Browser"
-PLUGIN_VERSION     = "1.1.1"
+PLUGIN_VERSION     = "2.0.0"
 PLUGIN_AUTHOR      = "HiroYokoyama"
 PLUGIN_DESCRIPTION = "Standalone intranet chemistry structure and protocol database. Connects MoleditPy to a local Molibrary server for structure searching and importing."
 PLUGIN_CATEGORY    = "Database"
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0, <6.0.0"
+PLUGIN_SUPPORTED_PYTHON_VERSION = ">=3.9, <3.15"
+PLUGIN_SUPPORTED_OS = ["Windows", "macOS", "Linux", "WSL"]
+PLUGIN_DEPENDENCIES = []
 
 _DEFAULT_BASE_URL = "http://127.0.0.1:5000"
 
@@ -94,7 +100,7 @@ _SVG_CHECKMARK = """<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
 def _get_svg_icon(svg_text: str, size: int = 16) -> QIcon:
     """Render an SVG string to a QIcon."""
     try:
-        from PyQt6.QtSvg import QSvgRenderer
+        from PySide6.QtSvg import QSvgRenderer
         renderer = QSvgRenderer(svg_text.encode())
         px = QPixmap(size, size)
         px.fill(Qt.GlobalColor.transparent)
@@ -109,8 +115,8 @@ def _get_svg_icon(svg_text: str, size: int = 16) -> QIcon:
 # ── Worker threads ────────────────────────────────────────────────────────────
 
 class _TextSearchWorker(QThread):
-    results_ready  = pyqtSignal(list)
-    error_occurred = pyqtSignal(str)
+    results_ready  = Signal(list)
+    error_occurred = Signal(str)
 
     def __init__(self, base_url: str, query: str, parent=None):
         super().__init__(parent)
@@ -134,8 +140,8 @@ class _TextSearchWorker(QThread):
 
 
 class _StructureSearchWorker(QThread):
-    results_ready  = pyqtSignal(list)
-    error_occurred = pyqtSignal(str)
+    results_ready  = Signal(list)
+    error_occurred = Signal(str)
 
     def __init__(self, base_url: str, smiles: str, mode: str,
                  threshold: float, parent=None):
@@ -180,7 +186,7 @@ class _StructureSearchWorker(QThread):
 
 
 class _SvgFetcher(QThread):
-    svg_ready = pyqtSignal(str, str)
+    svg_ready = Signal(str, str)
 
     def __init__(self, base_url: str, smiles: str, parent=None):
         super().__init__(parent)
@@ -479,6 +485,7 @@ class MolibraryBrowserDialog(QDialog):
         self._worker       = None
         self._svg_worker   = None
         self._auto_loading = False
+        self._busy         = False
 
         # Restore last-used server URL from companion JSON
         saved_url = _load_settings().get("server_url", _DEFAULT_BASE_URL)
@@ -492,7 +499,10 @@ class MolibraryBrowserDialog(QDialog):
         self._le_url.editingFinished.connect(self._save_url)
 
         # Silently populate the table on first open if the server is reachable
-        QTimer.singleShot(250, self._auto_load)
+        self._auto_load_timer = QTimer(self)
+        self._auto_load_timer.setSingleShot(True)
+        self._auto_load_timer.timeout.connect(self._auto_load)
+        self._auto_load_timer.start(250)
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -829,7 +839,7 @@ class MolibraryBrowserDialog(QDialog):
         self._worker = _TextSearchWorker(self._current_url(), query, self)
         self._worker.results_ready.connect(self._on_results)
         self._worker.error_occurred.connect(self._on_error)
-        self._worker.finished.connect(lambda: self._set_busy(False))
+        self._worker.finished.connect(self._on_search_finished)
         self._worker.start()
 
     def _run_structure_search(self, smiles: str, mode: str):
@@ -842,7 +852,7 @@ class MolibraryBrowserDialog(QDialog):
         )
         self._worker.results_ready.connect(self._on_results)
         self._worker.error_occurred.connect(self._on_error)
-        self._worker.finished.connect(lambda: self._set_busy(False))
+        self._worker.finished.connect(self._on_search_finished)
         self._worker.start()
 
     def _set_busy(self, busy: bool):
@@ -850,12 +860,30 @@ class MolibraryBrowserDialog(QDialog):
             w.setEnabled(not busy)
         if busy:
             self._lbl_status.setText("Searching…")
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        else:
+            if not self._busy:
+                QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        elif self._busy:
             QApplication.restoreOverrideCursor()
+        self._busy = busy
+
+    @Slot()
+    def _on_search_finished(self):
+        self._set_busy(False)
+
+    def closeEvent(self, event):
+        self._auto_load_timer.stop()
+        for worker in (self._worker, self._svg_worker):
+            if worker is not None and worker.isRunning():
+                worker.requestInterruption()
+                worker.quit()
+                # HTTP requests have timeouts; retain their QThreads until done.
+                worker.wait()
+        self._set_busy(False)
+        super().closeEvent(event)
 
     # ── Results ───────────────────────────────────────────────────────────────
 
+    @Slot(list)
     def _on_results(self, results: list):
         self._auto_loading = False
         self._results = results
@@ -890,6 +918,7 @@ class MolibraryBrowserDialog(QDialog):
         else:
             self._lbl_status.setText("No results found.")
 
+    @Slot(str)
     def _on_error(self, msg: str):
         if self._auto_loading:
             self._auto_loading = False
@@ -939,20 +968,21 @@ class MolibraryBrowserDialog(QDialog):
                 # RDKit not available locally: fall back to server
                 if self._svg_worker and self._svg_worker.isRunning():
                     self._svg_worker.quit()
-                    self._svg_worker.wait(2000)
+                    self._svg_worker.wait()
                 self._svg_worker = _SvgFetcher(self._current_url(), smiles, self)
                 self._svg_worker.svg_ready.connect(self._on_svg_ready)
                 self._svg_worker.start()
         else:
             self._lbl_struct.setText("No structure")
 
+    @Slot(str, str)
     def _on_svg_ready(self, _smiles: str, svg_text: str):
         if not svg_text:
             self._lbl_struct.setText("No preview")
             return
         try:
-            from PyQt6.QtSvg import QSvgRenderer
-            from PyQt6.QtGui import QPainter
+            from PySide6.QtSvg import QSvgRenderer
+            from PySide6.QtGui import QPainter
             renderer = QSvgRenderer(svg_text.encode())
             size = renderer.defaultSize()
             if not size.isValid():
