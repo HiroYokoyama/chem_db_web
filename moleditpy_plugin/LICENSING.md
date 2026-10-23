@@ -1,8 +1,10 @@
 # Molibrary Browser plugin licensing
 
-The copyright holder, Hiromichi Yokoyama / HiroYokoyama, authorizes the
-first-party Molibrary Browser Python plugin distributed with this notice under
-**LGPL-3.0-or-later**. `LICENSE` contains LGPLv3's additional permissions and
+The first-party Molibrary Browser Python plugin is licensed under the GNU
+Lesser General Public License, version 3 or (at your option) any later version
+(LGPL-3.0-or-later). Copyright: Hiromichi Yokoyama / HiroYokoyama.
+
+`LICENSE` contains LGPLv3's additional permissions and
 `COPYING` its incorporated GPLv3 terms. Retain both texts and existing notices
 when redistributing the plugin. Historical releases retain their original grants.
 
